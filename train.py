@@ -77,7 +77,7 @@ class Trainer:
         sample_weights /= sample_weights.mean()
         # 值留训练集
         train_len = int(len(sample_weights) * self.split_ratio)
-        sample_weights = sample_weights[train_len:]
+        sample_weights = sample_weights[:train_len]
         return sample_weights
 
     def create_emb_weights(self, word_index):
