@@ -121,8 +121,8 @@ class Trainer:
                                     weights=[emb_weights],
                                     trainable=True)
         token_emb = embedding_layer(token_input)
-        output1 = Bidirectional(GRU(256, return_sequences=True))(token_emb)
-        output2 = Bidirectional(LSTM(256, return_sequences=True))(token_emb)
+        output1 = Bidirectional(CuDNNGRU(256, return_sequences=True))(token_emb)
+        output2 = Bidirectional(CuDNNLSTM(256, return_sequences=True))(token_emb)
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
