@@ -3,4 +3,4 @@ from train import *
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
     trainer = Trainer(data_dir=data_dir)
-    trainer.train(epochs=1, batch_size=512)
+    trainer.train(epochs=1, batch_size=1024)
