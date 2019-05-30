@@ -1,6 +1,6 @@
 from train import *
 
 if __name__ == "__main__":
-    data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
+    data_dir = "/root/nb/data"
     trainer = Trainer(data_dir=data_dir)
-    trainer.train(batch_size=1)
+    trainer.train(epochs=1, batch_size=512)
