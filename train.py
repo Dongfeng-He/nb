@@ -17,8 +17,8 @@ class Trainer:
         self.seed = 5
         self.max_len = 220
         self.split_ratio = 0.95
-        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
-        self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
+        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(10000)
+        self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(10000)
         self.evaluator = self.init_evaluator()
 
     def init_evaluator(self):
@@ -167,7 +167,7 @@ class Trainer:
                       y=[train_label, train_type_labels],
                       batch_size=batch_size,
                       epochs=1,
-                      verbose=2,
+                      verbose=1,
                       validation_data=([valid_tokens], [valid_label, valid_type_labels]),
                       sample_weight=[sample_weights, np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
