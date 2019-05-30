@@ -16,9 +16,9 @@ class Trainer:
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed = 5
         self.max_len = 220
-        self.split_ratio = 0.95
-        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
-        self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
+        self.split_ratio = 0.5
+        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(200)
+        self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(200)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
 
@@ -82,24 +82,33 @@ class Trainer:
         return sample_weights
 
     def create_emb_weights(self, word_index):
+        i = 0
         with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
             fasttext_emb_dict = {}
             for line in f:
                 split = line.strip().split(" ")
                 word = split[0]
                 if word not in word_index: continue
+                i += 1
+                if i == 1000: break
                 emb = np.array([float(num) for num in split[1:]])
-                fasttext_emb_dict[word] = emb
+                fasttext_emb_dict[word]= emb
+        i = 0
         with open(os.path.join(self.data_dir, "glove.840B.300d.txt"), "r") as f:
             glove_emb_dict = {}
             for line in f:
                 split = line.strip().split(" ")
                 word = split[0]
                 if word not in word_index: continue
+                i += 1
+                if i == 1000: break
                 emb = np.array([float(num) for num in split[1:]])
-                glove_emb_dict[word] = emb
+                glove_emb_dict[word]= emb
         word_embedding = np.zeros((len(word_index) + 1, 600))     # tokenizer 自动留出0用来 padding
+        i = 0
         for word, index in word_index.items():
+            i += 1
+            if i == 1000: break
             fasttext_emb = fasttext_emb_dict[word] if word in fasttext_emb_dict else np.random.uniform(-0.25, 0.25, 300)
             glove_emb = glove_emb_dict[word] if word in glove_emb_dict else np.random.uniform(-0.25, 0.25, 300)
             word_embedding[index] = np.concatenate((fasttext_emb, glove_emb), axis=-1)
@@ -121,15 +130,15 @@ class Trainer:
                                     weights=[emb_weights],
                                     trainable=True)
         token_emb = embedding_layer(token_input)
-        output1 = Bidirectional(GRU(256, return_sequences=True))(token_emb)
-        output2 = Bidirectional(LSTM(256, return_sequences=True))(token_emb)
+        output1 = Bidirectional(GRU(1, return_sequences=True))(token_emb)
+        output2 = Bidirectional(LSTM(1, return_sequences=True))(token_emb)
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
         output = concatenate([output1, output2])
         # 全连接层
-        output = hidden_layer(output, 512, "he_normal", "relu")
-        output = hidden_layer(output, 256, "he_normal", "relu")
+        output = hidden_layer(output, 1, "he_normal", "relu")
+        output = hidden_layer(output, 1, "he_normal", "relu")
         # 输出层
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
