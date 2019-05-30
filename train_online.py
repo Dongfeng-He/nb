@@ -1,4 +1,4 @@
-from train_debug import *
+from train import *
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
