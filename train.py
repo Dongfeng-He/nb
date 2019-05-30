@@ -129,7 +129,7 @@ class Trainer:
         output = concatenate([output1, output2])
         # 全连接层
         output = hidden_layer(output, 512, "he_normal", "relu")
-        output = hidden_layer(output, 256, "he_normal", "relu")
+        output = hidden_layer(output, 512, "he_normal", "relu")
         # 输出层
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
