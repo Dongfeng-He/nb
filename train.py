@@ -169,7 +169,7 @@ class Trainer:
             y_pred = model.predict(valid_tokens)[0]
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
             print("auc_score:", auc_score)
-            model.save(os.path.join(self.data_dir, "model_%.5f" % auc_score))
+            model.save(os.path.join(self.data_dir, "model/model_%.5f" % auc_score))
 
 
 if __name__ == "__main__":
