@@ -183,7 +183,7 @@ class Trainer:
                       epochs=1,
                       verbose=1,
                       validation_data=([valid_tokens], [valid_label]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights)],
+                      sample_weight=sample_weights,
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分
