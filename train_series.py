@@ -7,35 +7,35 @@ if __name__ == "__main__":
     from train.train1_original import Trainer
     print("start to train: train1_original")
     trainer = Trainer(data_dir=data_dir, model_name="train1_original", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
+    trainer.train(epochs=1, batch_size=512)
     del Trainer
     gc.collect()
 
     from train.train2_binary_label import Trainer
     print("start to train: train2_binary_label")
     trainer = Trainer(data_dir=data_dir, model_name="train2_binary_label", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
+    trainer.train(epochs=1, batch_size=512)
     del Trainer
     gc.collect()
 
     from train.train3_no_aux import Trainer
     print("start to train: train3_no_aux")
     trainer = Trainer(data_dir=data_dir, model_name="train3_no_aux", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
+    trainer.train(epochs=1, batch_size=512)
     del Trainer
     gc.collect()
 
     from train.train4_aux_less_weight import Trainer
     print("start to train: train4_aux_less_weight")
     trainer = Trainer(data_dir=data_dir, model_name="train4_aux_less_weight", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
+    trainer.train(epochs=1, batch_size=512)
     del Trainer
     gc.collect()
 
     from train.train5_no_identity_zero import Trainer
     print("start to train: train5_no_identity_zero")
     trainer = Trainer(data_dir=data_dir, model_name="train5_no_identity_zero", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
+    trainer.train(epochs=1, batch_size=512)
     del Trainer
     gc.collect()
 
