@@ -2,7 +2,7 @@ import gc
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
-    debug_mode = True
+    debug_mode = False
 
     from train.train1_original import Trainer
     print("start to train: train1_original")
