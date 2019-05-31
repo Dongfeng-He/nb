@@ -187,7 +187,7 @@ class Trainer:
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分
-            y_pred = model.predict(valid_tokens)[0]
+            y_pred = model.predict(valid_tokens)
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
             print("auc_score:", auc_score)
             if not self.debug_mode:
