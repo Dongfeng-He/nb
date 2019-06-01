@@ -3,7 +3,7 @@ import time
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
-    debug_mode = False
+    debug_mode = True
     """
     from train.train1_original import Trainer
     print("start to train: train1_original")
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     print("start to train: train6_subgroup_mul_1")
     trainer = Trainer(data_dir=data_dir, model_name="train6_subgroup_mul_1", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
-    """
+
     from train.train7_subgroup_mul_3 import Trainer
     print("start to train: train7_subgroup_mul_3")
     trainer = Trainer(data_dir=data_dir, model_name="train7_subgroup_mul_3", debug_mode=debug_mode)
@@ -53,4 +53,25 @@ if __name__ == "__main__":
     from train.train10_len_300 import Trainer
     print("start to train: train10_len_300")
     trainer = Trainer(data_dir=data_dir, model_name="train10_len_300", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+    """
+
+    from train.train11_identity_original import Trainer
+    print("start to train: train11_identity_original")
+    trainer = Trainer(data_dir=data_dir, model_name="train11_identity_original", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train12_identity_binary import Trainer
+    print("start to train: train12_identity_binary")
+    trainer = Trainer(data_dir=data_dir, model_name="train12_identity_binary", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train13_identity_original_sum import Trainer
+    print("start to train: train13_identity_original_sum")
+    trainer = Trainer(data_dir=data_dir, model_name="train13_identity_original_sum", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train14_identity_binary_or import Trainer
+    print("start to train: train14_identity_binary_or")
+    trainer = Trainer(data_dir=data_dir, model_name="train14_identity_binary_or", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)

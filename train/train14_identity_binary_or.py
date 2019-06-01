@@ -196,7 +196,8 @@ class Trainer:
         # 输出层
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
-        model = Model(token_input, [output1, output2])
+        output3 = Dense(1, activation="sigmoid")(output)
+        model = Model(token_input, [output1, output2, output3])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])
@@ -230,12 +231,12 @@ class Trainer:
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
-                      y=[train_label, train_type_labels],
+                      y=[train_label, train_type_labels, train_identity_binary_label],
                       batch_size=batch_size,
                       epochs=1,
                       verbose=1,
-                      validation_data=([valid_tokens], [valid_label, valid_type_labels]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights)],
+                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_binary_label]),
+                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分
