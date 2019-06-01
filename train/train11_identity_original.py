@@ -62,7 +62,7 @@ class Trainer:
         train_identity_type_labels = train_identity_values
         train_identity_type_binary_lables = train_identity_binary
         train_identity_sum_label = train_identity_sum_label
-        train_identity_binary_label = train_identity_binary
+        train_identity_binary_label = train_identity_or_binary
 
         test_comments = self.test_df["comment_text"].astype(str)
         # tokenizer 训练
