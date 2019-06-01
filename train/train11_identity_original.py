@@ -234,7 +234,7 @@ class Trainer:
                       y=[train_label, train_type_labels, train_identity_type_labels],
                       batch_size=batch_size,
                       epochs=1,
-                      verbose=1,
+                      verbose=2,
                       validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels]),
                       sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
