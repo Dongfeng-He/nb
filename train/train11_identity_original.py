@@ -246,7 +246,8 @@ class Trainer:
             if not self.debug_mode:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型，手动清除显存
-        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model]
+        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,
+                            valid_identity_type_labels, train_identity_type_labels, valid_identity_type_binary_lables, train_identity_type_binary_lables, valid_identity_sum_label, train_identity_sum_label, valid_identity_binary_label, train_identity_binary_label]
         for training_variable in training_history:
             del training_variable
         K.clear_session()
