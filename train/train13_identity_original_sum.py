@@ -54,7 +54,7 @@ class Trainer:
         # 身份01值
         train_identity_binary = copy.deepcopy(self.train_df[self.identity_list])
         for column in self.identity_list:
-            train_identity_binary = np.where(train_identity_binary[column] > 0.5, 1, 0)
+            train_identity_binary[column] = np.where(train_identity_binary[column] > 0.5, 1, 0)
         # 身份01值有一个就算1
         train_identity_binary_sum = train_identity_binary.sum(axis=1)
         train_identity_or_binary = np.where(train_identity_binary_sum >= 1, 1, 0)
