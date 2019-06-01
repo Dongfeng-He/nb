@@ -36,7 +36,7 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     time.sleep(10)
-    """
+
     from train.train5_no_identity_zero import Trainer
     print("start to train: train5_no_identity_zero")
     trainer = Trainer(data_dir=data_dir, model_name="train5_no_identity_zero", debug_mode=debug_mode)
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     time.sleep(10)
-
+    """
     from train.train7_subgroup_mul_3 import Trainer
     print("start to train: train7_subgroup_mul_3")
     trainer = Trainer(data_dir=data_dir, model_name="train7_subgroup_mul_3", debug_mode=debug_mode)
