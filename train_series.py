@@ -44,7 +44,7 @@ if __name__ == "__main__":
     print("start to train: train8_subgroup_mul_5")
     trainer = Trainer(data_dir=data_dir, model_name="train8_subgroup_mul_5", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
-
+    """
     from train.train9_subgroup_mul_7 import Trainer
     print("start to train: train9_subgroup_mul_7")
     trainer = Trainer(data_dir=data_dir, model_name="train9_subgroup_mul_7", debug_mode=debug_mode)
@@ -54,7 +54,6 @@ if __name__ == "__main__":
     print("start to train: train10_len_300")
     trainer = Trainer(data_dir=data_dir, model_name="train10_len_300", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
-    """
 
     from train.train11_identity_original import Trainer
     print("start to train: train11_identity_original")
