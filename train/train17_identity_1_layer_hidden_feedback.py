@@ -248,7 +248,7 @@ class Trainer:
             y_pred = model.predict(valid_tokens)[0]
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
             print("auc_score:", auc_score)
-            if not self.debug_mode:
+            if not self.debug_mode and epoch > 0:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型，手动清除显存
         training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,
