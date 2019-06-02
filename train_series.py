@@ -3,7 +3,7 @@ import time
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
-    debug_mode = False
+    debug_mode = True
     """
     from train.train1_original import Trainer
     print("start to train: train1_original")
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     print("start to train: train8_subgroup_mul_5")
     trainer = Trainer(data_dir=data_dir, model_name="train8_subgroup_mul_5", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
-    """
+
     from train.train9_subgroup_mul_7 import Trainer
     print("start to train: train9_subgroup_mul_7")
     trainer = Trainer(data_dir=data_dir, model_name="train9_subgroup_mul_7", debug_mode=debug_mode)
@@ -73,4 +73,39 @@ if __name__ == "__main__":
     from train.train14_identity_binary_or import Trainer
     print("start to train: train14_identity_binary_or")
     trainer = Trainer(data_dir=data_dir, model_name="train14_identity_binary_or", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+    """
+    from train.train20_identity_2_layer_hidden import Trainer
+    print("start to train: train20_identity_2_layer_hidden")
+    trainer = Trainer(data_dir=data_dir, model_name="train20_identity_2_layer_hidden", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train15_identity_original_mul_5 import Trainer
+    print("start to train: train15_identity_original_mul_5")
+    trainer = Trainer(data_dir=data_dir, model_name="train15_identity_original_mul_5", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train16_identity_1_layer_hidden import Trainer
+    print("start to train: train16_identity_1_layer_hidden")
+    trainer = Trainer(data_dir=data_dir, model_name="train16_identity_1_layer_hidden", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train17_identity_1_layer_hidden_feedback import Trainer
+    print("start to train: train17_identity_1_layer_hidden_feedback")
+    trainer = Trainer(data_dir=data_dir, model_name="train17_identity_1_layer_hidden_feedback", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train18_aux_and_identity_1_layer_hidden import Trainer
+    print("start to train: train18_aux_and_identity_1_layer_hidden")
+    trainer = Trainer(data_dir=data_dir, model_name="train18_aux_and_identity_1_layer_hidden", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train19_identity_same_layer_hidden import Trainer
+    print("start to train: train19_identity_same_layer_hidden")
+    trainer = Trainer(data_dir=data_dir, model_name="train19_identity_same_layer_hidden", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+    from train.train21_focal_loss import Trainer
+    print("start to train: train21_focal_loss")
+    trainer = Trainer(data_dir=data_dir, model_name="train21_focal_loss", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
