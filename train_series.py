@@ -3,7 +3,7 @@ import time
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
-    debug_mode = False
+    debug_mode = True
     """
     from train.train1_original import Trainer
     print("start to train: train1_original")
@@ -75,6 +75,11 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train14_identity_binary_or", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
     """
+    from train.train23_aux_identity_2_layer_hidden import Trainer
+    print("start to train: train23_aux_identity_2_layer_hidden")
+    trainer = Trainer(data_dir=data_dir, model_name="train23_aux_identity_2_layer_hidden", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
     from train.train20_identity_2_layer_hidden import Trainer
     print("start to train: train20_identity_2_layer_hidden")
     trainer = Trainer(data_dir=data_dir, model_name="train20_identity_2_layer_hidden", debug_mode=debug_mode)
@@ -95,7 +100,7 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train17_identity_1_layer_hidden_feedback", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
 
-    from train.train18_aux_and_identity_1_layer_hidden import Trainer
+    from train.train18_aux_identity_1_layer_hidden import Trainer
     print("start to train: train18_aux_and_identity_1_layer_hidden")
     trainer = Trainer(data_dir=data_dir, model_name="train18_aux_and_identity_1_layer_hidden", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
@@ -109,3 +114,10 @@ if __name__ == "__main__":
     print("start to train: train21_focal_loss")
     trainer = Trainer(data_dir=data_dir, model_name="train21_focal_loss", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
+
+    from train.train22_identity_2_layer_hidden2 import Trainer
+    print("start to train: train22_identity_2_layer_hidden2")
+    trainer = Trainer(data_dir=data_dir, model_name="train22_identity_2_layer_hidden2", debug_mode=debug_mode)
+    trainer.train(epochs=5, batch_size=512)
+
+
