@@ -200,7 +200,7 @@ class Trainer:
         type_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
         type_output = Dense(6, activation="sigmoid")(type_hidden)
         # 拼接
-        output = concatenate([concat_output, identity_hidden1, identity_hidden2, type_output])
+        output = concatenate([concat_output, identity_hidden1, identity_hidden2, type_hidden])
         # 全连接层
         output = hidden_layer(output, hidden_size, "he_normal", "relu")
         # 输出层
