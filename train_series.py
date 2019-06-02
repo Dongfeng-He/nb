@@ -110,11 +110,6 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train19_identity_same_layer_hidden", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
 
-    from train.train21_focal_loss import Trainer
-    print("start to train: train21_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train21_focal_loss", debug_mode=debug_mode)
-    trainer.train(epochs=5, batch_size=512)
-
     from train.train22_identity_2_layer_hidden2 import Trainer
     print("start to train: train22_identity_2_layer_hidden2")
     trainer = Trainer(data_dir=data_dir, model_name="train22_identity_2_layer_hidden2", debug_mode=debug_mode)
