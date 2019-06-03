@@ -191,6 +191,8 @@ class Trainer:
             # 打分
             y_pred = model.predict(valid_tokens)
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
+            if auc_score < previous_auc_score: break
+            else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
             if not self.debug_mode:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))

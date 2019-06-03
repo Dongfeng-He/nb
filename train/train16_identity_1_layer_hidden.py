@@ -233,6 +233,7 @@ class Trainer:
         sample_weights = self.cal_sample_weights()
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         model = self.build_model(word_embedding)
+        previous_auc_score = 0
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
@@ -247,6 +248,8 @@ class Trainer:
             # 打分
             y_pred = model.predict(valid_tokens)[0]
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
+            if auc_score < previous_auc_score: break
+            else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
             if not self.debug_mode and epoch > 0:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
