@@ -235,6 +235,7 @@ class Trainer:
         sample_weights = self.cal_sample_weights()
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         model = self.build_model(word_embedding)
+        previous_auc_score = 0
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
