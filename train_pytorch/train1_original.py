@@ -293,6 +293,7 @@ class Trainer:
         loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
         # 训练
         previous_auc_score = 0
+        stop_flag = 0
         for epoch in range(self.epochs):
             start_time = time.time()
             # 调整一次学习速率
@@ -327,10 +328,14 @@ class Trainer:
                 y_pred[i * self.batch_size: (i + 1) * self.batch_size] = batch_y_pred
             # 计算得分
             auc_score = self.evaluator.get_final_metric(y_pred)
-            """
-            if auc_score < previous_auc_score: break
-            else: previous_auc_score = auc_score
-            """
+            if auc_score < previous_auc_score:
+                if stop_flag == 0:
+                    stop_flag += 1
+                else:
+                    break
+            else:
+                stop_flag = 0
+                previous_auc_score = auc_score
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()
