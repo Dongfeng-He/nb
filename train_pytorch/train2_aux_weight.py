@@ -75,6 +75,10 @@ class Trainer:
         self.model_name = model_name
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
+        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
+                            "threat": 608, "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
+                            "jewish": 242, "muslim": 132, "black": 130, "white": 89, "psychiatric_or_mental_illness": 368,
+                            "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
         self.seed = 5
@@ -194,7 +198,7 @@ class Trainer:
         # aux weight
         aux_weight = np.zeros((len(self.train_df), len(self.toxicity_type_list)))
         for i, column in enumerate(self.toxicity_type_list):
-            aux_weight[:, i] = np.where(self.train_df[column] > 0.5, 10, 1)
+            aux_weight[:, i] = np.where(self.train_df[column] > 0.5, 20, 1)
         # identity weight
         identity_weight = np.zeros((len(self.train_df), len(self.identity_list)))
         for i, column in enumerate(self.identity_list):
