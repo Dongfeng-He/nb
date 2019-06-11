@@ -327,8 +327,10 @@ class Trainer:
                 y_pred[i * self.batch_size: (i + 1) * self.batch_size] = batch_y_pred
             # 计算得分
             auc_score = self.evaluator.get_final_metric(y_pred)
+            """
             if auc_score < previous_auc_score: break
             else: previous_auc_score = auc_score
+            """
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()
