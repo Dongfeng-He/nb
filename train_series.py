@@ -119,8 +119,13 @@ if __name__ == "__main__":
     print("start to train_keras: train21_focal_loss")
     trainer = Trainer(data_dir=data_dir, model_name="train21_focal_loss", debug_mode=debug_mode)
     trainer.train(epochs=5, batch_size=512)
-    """
+
     from train_pytorch.train1_original import Trainer
     print("start to train_pytorch: train1_original")
     trainer = Trainer(data_dir=data_dir, model_name="train1_original_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
+    trainer.train()
+    """
+    from train_pytorch.train2_aux_weight import Trainer
+    print("start to train_pytorch: train2_aux_weight")
+    trainer = Trainer(data_dir=data_dir, model_name="train2_aux_weight_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
