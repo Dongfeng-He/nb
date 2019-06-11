@@ -10,6 +10,7 @@ from torch.utils import data
 from torch.nn import functional as F
 import numpy as np
 import time
+import gc
 
 
 class SpatialDropout(nn.Dropout2d):
@@ -68,7 +69,7 @@ class NeuralNet(nn.Module):
 
 
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=4, batch_size=512, debug_mode=False):
+    def __init__(self, data_dir, model_name, epochs=5, batch_size=512, part=1., debug_mode=False):
         self.data_dir = data_dir
         self.debug_mode = debug_mode
         self.model_name = model_name
@@ -81,8 +82,9 @@ class Trainer:
         self.epochs = epochs
         self.batch_size = batch_size
         self.split_ratio = 0.95
+        self.sample_num = 1804874
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(int(self.sample_num * part))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
             self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
@@ -256,12 +258,12 @@ class Trainer:
         target_true = y_batch[:, 0]
         aux_pred = y_pred[:, 1:]
         aux_true = y_batch[:, 1:]
-        target_loss = nn.BCEWithLogitsLoss(reduce=False)(target_pred, target_true)
+        target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
         if True:
             aux_loss = nn.BCEWithLogitsLoss()(aux_pred, aux_true)
         else:
-            aux_loss = nn.BCEWithLogitsLoss(reduce=False)(aux_pred, aux_true)
+            aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
             aux_loss = torch.mean(aux_loss * aux_weight)
         return target_loss, aux_loss
 
@@ -325,7 +327,12 @@ class Trainer:
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()
                 del temp_dict['embedding.weight']
-                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pyTroch][%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
+                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
+        # del 训练相关输入和模型
+        training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler, target_loss, aux_loss, y_pred]
+        for variable in training_history:
+            del variable
+        gc.collect()
 
 
 if __name__ == "__main__":

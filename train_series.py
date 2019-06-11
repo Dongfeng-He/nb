@@ -122,5 +122,5 @@ if __name__ == "__main__":
     """
     from train_pytorch.train1_original import Trainer
     print("start to train_pytorch: train1_original")
-    trainer = Trainer(data_dir=data_dir, model_name="train1_original", epochs=4, batch_size=512, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train1_original", epochs=6, batch_size=512, debug_mode=debug_mode)
     trainer.train()
