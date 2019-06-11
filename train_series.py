@@ -127,21 +127,8 @@ if __name__ == "__main__":
     """
     from train_pytorch.train2_aux_weight import Trainer
     print("start to train_pytorch: train2_aux_weight")
-    trainer = Trainer(data_dir=data_dir, model_name="train2_aux_weight_part", epochs=1, batch_size=512, part=0.3, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train2_aux_weight_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
 
-    from train_pytorch.train2_aux_weight import Trainer
-    print("start to train_pytorch: train2_aux_weight")
-    trainer = Trainer(data_dir=data_dir, model_name="train2_aux_weight_part", epochs=1, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train2_aux_weight import Trainer
-    print("start to train_pytorch: train2_aux_weight")
-    trainer = Trainer(data_dir=data_dir, model_name="train2_aux_weight_part", epochs=1, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
