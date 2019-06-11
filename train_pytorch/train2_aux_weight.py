@@ -199,7 +199,7 @@ class Trainer:
         # aux weight
         aux_weight = np.zeros((len(self.train_df), len(self.toxicity_type_list)))
         for i, column in enumerate(self.toxicity_type_list):
-            weight = a = math.pow(self.weight_dict[column], 1 / 1.5)
+            weight = math.pow(self.weight_dict[column], 0.5)
             aux_weight[:, i] = np.where(self.train_df[column] > 0.5, weight, 1)
         # identity weight
         identity_weight = np.zeros((len(self.train_df), len(self.identity_list)))
