@@ -218,6 +218,7 @@ class Trainer:
         return target_weight, aux_weight, identity_weight
 
     def create_emb_weights(self, word_index):
+        # 构建词向量字典
         with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
             fasttext_emb_dict = {}
             for i, line in enumerate(f):
@@ -236,7 +237,12 @@ class Trainer:
                 if word not in word_index: continue
                 emb = np.array([float(num) for num in split[1:]])
                 glove_emb_dict[word] = emb
+        # 为训练集和测试集出现过的词构建词向量矩阵
         word_embedding = np.zeros((len(word_index) + 1, 600))     # tokenizer 自动留出0用来 padding
+        np.random.seed(1234)
+        fasttext_random_emb = np.random.uniform(-0.25, 0.25, 300)   # 用于 fasttext 找不到词语时
+        np.random.seed(1235)
+        glove_random_emb = np.random.uniform(-0.25, 0.25, 300)  # 用于 glove 找不到词语时
         for word, index in word_index.items():
             # 如果找不到 emb，尝试小写或首字母大写
             if word not in fasttext_emb_dict and word not in glove_emb_dict:
@@ -245,8 +251,8 @@ class Trainer:
                     word = word.title()
                     if word not in fasttext_emb_dict and word not in glove_emb_dict:
                         word = word.upper()
-            fasttext_emb = fasttext_emb_dict[word] if word in fasttext_emb_dict else np.random.uniform(-0.25, 0.25, 300)
-            glove_emb = glove_emb_dict[word] if word in glove_emb_dict else np.random.uniform(-0.25, 0.25, 300)
+            fasttext_emb = fasttext_emb_dict[word] if word in fasttext_emb_dict else fasttext_random_emb
+            glove_emb = glove_emb_dict[word] if word in glove_emb_dict else glove_random_emb
             word_embedding[index] = np.concatenate((fasttext_emb, glove_emb), axis=-1)
         return np.array(word_embedding)
 
@@ -329,7 +335,7 @@ class Trainer:
                 del temp_dict['embedding.weight']
                 torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型
-        training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler, target_loss, aux_loss, y_pred]
+        training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler]
         for variable in training_history:
             del variable
         gc.collect()
@@ -339,13 +345,3 @@ if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
     trainer = Trainer(data_dir, "model_name", debug_mode=True)
     trainer.train()
-
-"""
-def custom_loss(data, targets):
-    ''' Define custom loss function for weighted BCE on 'target' column '''
-    bce_loss_1 = nn.BCEWithLogitsLoss(weight=targets[:, 1:2])(data[:, :1], targets[:, :1])
-    bce_loss_2 = nn.BCEWithLogitsLoss()(data[:, 1:], targets[:, 2:])
-    return (bce_loss_1 * loss_weight) + bce_loss_2
-    
-loss_fn=nn.BCEWithLogitsLoss(reduction='mean')
-"""
