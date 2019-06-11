@@ -10,6 +10,7 @@ from torch.utils import data
 from torch.nn import functional as F
 import numpy as np
 import time
+import math
 import gc
 
 
@@ -198,7 +199,8 @@ class Trainer:
         # aux weight
         aux_weight = np.zeros((len(self.train_df), len(self.toxicity_type_list)))
         for i, column in enumerate(self.toxicity_type_list):
-            aux_weight[:, i] = np.where(self.train_df[column] > 0.5, 20, 1)
+            weight = self.weight_dict[column]
+            aux_weight[:, i] = np.where(self.train_df[column] > 0.5, weight, 1)
         # identity weight
         identity_weight = np.zeros((len(self.train_df), len(self.identity_list)))
         for i, column in enumerate(self.identity_list):
