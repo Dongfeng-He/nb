@@ -202,7 +202,8 @@ class Trainer:
         self.seed_everything(1234)
         model = NeuralNet(word_embedding)
         # 读取模型，加载词向量
-        temp_dict = torch.load("/Users/hedongfeng/Desktop/model.model")
+        #temp_dict = torch.load("/Users/hedongfeng/Desktop/model.model")
+        temp_dict = torch.load("/root/nb/data/model/model.model")
         temp_dict['embedding.weight'] = torch.tensor(word_embedding)
         model.load_state_dict(temp_dict)
 
