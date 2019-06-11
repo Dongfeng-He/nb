@@ -17,7 +17,7 @@ class Trainer:
         self.seed = 5
         self.max_len = 220
         self.split_ratio = 0.5
-        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(200)
+        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(200)
         self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(200)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()

@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -121,8 +121,8 @@ class Trainer:
             sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 5
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 5
+            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
+            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
         sample_weights /= sample_weights.mean()
         # 值留训练集
         sample_weights = sample_weights[:self.train_len]
@@ -189,15 +189,20 @@ class Trainer:
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
-        output = concatenate([output1, output2])
+        concat_output = concatenate([output1, output2])
+        concat_output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        # 身份输出层
+        identity_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        identity_output = Dense(9, activation="sigmoid")(identity_hidden)
         # 全连接层
-        output = hidden_layer(output, hidden_size, "he_normal", "relu")
-        output = hidden_layer(output, hidden_size, "he_normal", "relu")
+        output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        # 拼接
+        output = concatenate([output, identity_hidden, identity_output])
         # 输出层
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
-        output3 = Dense(9, activation="sigmoid")(output)
-        model = Model(token_input, [output1, output2, output3])
+
+        model = Model(token_input, [output1, output2, identity_output])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])

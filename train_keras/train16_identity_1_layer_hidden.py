@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -193,8 +193,7 @@ class Trainer:
         concat_output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
         # 身份输出层
         identity_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        identity_output1 = Dense(9, activation="sigmoid")(identity_hidden)
-        identity_output2 = Dense(1, activation="sigmoid")(identity_hidden)
+        identity_output = Dense(9, activation="sigmoid")(identity_hidden)
         # 全连接层
         output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
         # 拼接
@@ -203,7 +202,7 @@ class Trainer:
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
 
-        model = Model(token_input, [output1, output2, identity_output1, identity_output2])
+        model = Model(token_input, [output1, output2, identity_output])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])
@@ -238,12 +237,12 @@ class Trainer:
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
-                      y=[train_label, train_type_labels, train_identity_type_labels, train_identity_binary_label],
+                      y=[train_label, train_type_labels, train_identity_type_labels],
                       batch_size=batch_size,
                       epochs=1,
                       verbose=2,
-                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels, valid_identity_binary_label]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights), np.ones_like(sample_weights)],
+                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels]),
+                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分

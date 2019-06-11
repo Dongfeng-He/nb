@@ -68,7 +68,7 @@ def build_model(embedding_matrix, num_aux_targets):
     return model
 
 
-train_df = pd.read_csv('/Users/hedongfeng/PycharmProjects/unintended_bias/data/train.csv')
+train_df = pd.read_csv('/Users/hedongfeng/PycharmProjects/unintended_bias/data/train_keras.csv')
 test_df = pd.read_csv('/Users/hedongfeng/PycharmProjects/unintended_bias/data/test.csv')
 
 x_train = train_df[TEXT_COLUMN].astype(str)

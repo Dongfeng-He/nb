@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()

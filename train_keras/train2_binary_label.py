@@ -8,6 +8,8 @@ from keras.callbacks import LearningRateScheduler
 from evaluation import *
 from keras import backend as K
 import gc
+from keras import backend as K
+import gc
 
 
 class Trainer:
@@ -22,10 +24,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -42,28 +44,11 @@ class Trainer:
     def create_train_data(self):
         # 读取输入输出
         train_comments = self.train_df["comment_text"].astype(str)
+        # TODO: 标签换成0/1
+        for column in self.toxicity_type_list + ["target"]:
+            self.train_df[column] = np.where(self.train_df[column] > 0.5, 1, 0)
         train_label = self.train_df["target"].values
         train_type_labels = self.train_df[self.toxicity_type_list].values
-
-        # 身份原始值
-        train_identity_values = self.train_df[self.identity_list].fillna(0.).values
-        # 所有身份原始值之和
-        train_identity_sum = train_identity_values.sum(axis=1)
-        # 将身份之和限制在1以下（sigmoid）
-        train_identity_sum_label = np.where(train_identity_sum > 1, 1, train_identity_sum)
-        # 身份01值
-        train_identity_binary = copy.deepcopy(self.train_df[self.identity_list])
-        for column in self.identity_list:
-            train_identity_binary[column] = np.where(train_identity_binary[column] > 0.5, 1, 0)
-        # 身份01值有一个就算1
-        train_identity_binary_sum = train_identity_binary.sum(axis=1)
-        train_identity_or_binary = np.where(train_identity_binary_sum >= 1, 1, 0)
-        # 所有身份标签
-        train_identity_type_labels = train_identity_values
-        train_identity_type_binary_lables = train_identity_binary
-        train_identity_sum_label = train_identity_sum_label
-        train_identity_binary_label = train_identity_or_binary
-
         test_comments = self.test_df["comment_text"].astype(str)
         # tokenizer 训练
         tokenizer = text.Tokenizer(filters=self.stopwords)
@@ -81,17 +66,6 @@ class Trainer:
         train_tokens = train_tokens[:self.train_len]
         train_label = train_label[:self.train_len]
         train_type_labels = train_type_labels[:self.train_len]
-
-        # 划分身份标签
-        valid_identity_type_labels = train_identity_type_labels[self.train_len:]
-        train_identity_type_labels = train_identity_type_labels[:self.train_len]
-        valid_identity_type_binary_lables = train_identity_type_binary_lables[self.train_len:]
-        train_identity_type_binary_lables = train_identity_type_binary_lables[:self.train_len]
-        valid_identity_sum_label = train_identity_sum_label[self.train_len:]
-        train_identity_sum_label = train_identity_sum_label[:self.train_len]
-        valid_identity_binary_label = train_identity_binary_label[self.train_len:]
-        train_identity_binary_label = train_identity_binary_label[:self.train_len]
-
         # 数据集
         dataset = {"train_tokens": train_tokens,
                    "train_label": train_label,
@@ -100,15 +74,7 @@ class Trainer:
                    "valid_label": valid_label,
                    "valid_type_labels": valid_type_labels,
                    "test_tokens": test_tokens,
-                   "tokenizer": tokenizer,
-                   "valid_identity_type_labels": valid_identity_type_labels,
-                   "train_identity_type_labels": train_identity_type_labels,
-                   "valid_identity_type_binary_lables": valid_identity_type_binary_lables,
-                   "train_identity_type_binary_lables": train_identity_type_binary_lables,
-                   "valid_identity_sum_label": valid_identity_sum_label,
-                   "train_identity_sum_label": train_identity_sum_label,
-                   "valid_identity_binary_label": valid_identity_binary_label,
-                   "train_identity_binary_label": train_identity_binary_label}
+                   "tokenizer": tokenizer}
         return dataset
 
     def cal_sample_weights(self):
@@ -117,12 +83,12 @@ class Trainer:
             self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
         sample_weights = np.ones(len(self.train_df))
         sample_weights += self.train_df["target"]
-        if False:
+        if True:
             sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
+            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 5
+            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 5
         sample_weights /= sample_weights.mean()
         # 值留训练集
         sample_weights = sample_weights[:self.train_len]
@@ -189,22 +155,14 @@ class Trainer:
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
-        concat_output = concatenate([output1, output2])
-        concat_output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        # 身份输出层
-        identity_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        identity_output = Dense(9, activation="sigmoid")(identity_hidden)
-        # toxic 类别输出层
-        type_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        type_output = Dense(6, activation="sigmoid")(type_hidden)
+        output = concatenate([output1, output2])
         # 全连接层
-        output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        # 拼接
-        output = concatenate([output, identity_hidden, type_hidden])
+        output = hidden_layer(output, hidden_size, "he_normal", "relu")
+        output = hidden_layer(output, hidden_size, "he_normal", "relu")
         # 输出层
-        output = Dense(1, activation="sigmoid")(output)
-
-        model = Model(token_input, [output, type_output, identity_output])
+        output1 = Dense(1, activation="sigmoid")(output)
+        output2 = Dense(6, activation="sigmoid")(output)
+        model = Model(token_input, [output1, output2])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])
@@ -222,16 +180,6 @@ class Trainer:
         valid_type_labels = dataset["valid_type_labels"]
         test_tokens = dataset["test_tokens"]
         tokenizer = dataset["tokenizer"]
-
-        valid_identity_type_labels = dataset["valid_identity_type_labels"]
-        train_identity_type_labels = dataset["train_identity_type_labels"]
-        valid_identity_type_binary_lables = dataset["valid_identity_type_binary_lables"]
-        train_identity_type_binary_lables = dataset["train_identity_type_binary_lables"]
-        valid_identity_sum_label = dataset["valid_identity_sum_label"]
-        train_identity_sum_label = dataset["train_identity_sum_label"]
-        valid_identity_binary_label = dataset["valid_identity_binary_label"]
-        train_identity_binary_label = dataset["train_identity_binary_label"]
-
         sample_weights = self.cal_sample_weights()
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         model = self.build_model(word_embedding)
@@ -239,12 +187,12 @@ class Trainer:
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
-                      y=[train_label, train_type_labels, train_identity_type_labels],
+                      y=[train_label, train_type_labels],
                       batch_size=batch_size,
                       epochs=1,
-                      verbose=2,
-                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
+                      verbose=1,
+                      validation_data=([valid_tokens], [valid_label, valid_type_labels]),
+                      sample_weight=[sample_weights, np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分
@@ -253,11 +201,10 @@ class Trainer:
             if auc_score < previous_auc_score: break
             else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
-            if not self.debug_mode and epoch > 0:
+            if not self.debug_mode:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型，手动清除显存
-        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,
-                            valid_identity_type_labels, train_identity_type_labels, valid_identity_type_binary_lables, train_identity_type_binary_lables, valid_identity_sum_label, train_identity_sum_label, valid_identity_binary_label, train_identity_binary_label]
+        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model]
         for training_variable in training_history:
             del training_variable
         K.clear_session()

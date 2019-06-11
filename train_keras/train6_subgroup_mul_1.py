@@ -8,16 +8,6 @@ from keras.callbacks import LearningRateScheduler
 from evaluation import *
 from keras import backend as K
 import gc
-import tensorflow as tf
-
-
-def focal_loss(gamma=2., alpha=.5):
-    def focal_loss_fixed(y_true, y_pred):
-        pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
-        pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
-        return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1)) - K.sum(
-            (1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0))
-    return focal_loss_fixed
 
 
 class Trainer:
@@ -32,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -208,7 +198,7 @@ class Trainer:
         output2 = Dense(6, activation="sigmoid")(output)
         model = Model(token_input, [output1, output2])
         model.compile(optimizer="adam",
-                      loss=focal_loss(),
+                      loss="binary_crossentropy",
                       metrics=["acc"])
         model.summary()
         return model
@@ -255,7 +245,7 @@ class Trainer:
             if auc_score < previous_auc_score: break
             else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
-            if not self.debug_mode and epoch > 0:
+            if not self.debug_mode:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型，手动清除显存
         training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model]

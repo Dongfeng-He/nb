@@ -1,4 +1,4 @@
-from train import *
+from train_keras import *
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"

@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -62,7 +62,7 @@ class Trainer:
         train_identity_type_labels = train_identity_values
         train_identity_type_binary_lables = train_identity_binary
         train_identity_sum_label = train_identity_sum_label
-        train_identity_binary_label = train_identity_or_binary
+        train_identity_binary_label = train_identity_binary
 
         test_comments = self.test_df["comment_text"].astype(str)
         # tokenizer 训练
@@ -111,22 +111,20 @@ class Trainer:
                    "train_identity_binary_label": train_identity_binary_label}
         return dataset
 
-    def cal_sample_weights(self):
+    def cal_sample_weights(self, percent):
+        train_df = copy.deepcopy(self.train_df.head(int(len(self.train_df) * percent)))
+        sample_num_dict = {}
+        for column in self.toxicity_type_list + self.identity_list + ["target"]:
+            sample_num_dict[column] = np.sum(np.where(train_df[column] > 0.5, 1, 0))
         # 把 train_df 中的 target 和 所有身份的值变成 bool
         for column in self.identity_list + ["target"]:
-            self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
-        sample_weights = np.ones(len(self.train_df))
-        sample_weights += self.train_df["target"]
-        if False:
-            sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
-            sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
-        else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
-        sample_weights /= sample_weights.mean()
-        # 值留训练集
-        sample_weights = sample_weights[:self.train_len]
-        return sample_weights
+            train_df[column] = np.where(train_df[column] > 0.5, True, False)
+        sample_num_dict["np"] = np.sum((~train_df["target"]) * np.where(train_df[self.identity_list].sum(axis=1) > 0, 1, 0))
+        sample_num_dict["pn"] = np.sum(train_df["target"] * np.where((~train_df[self.identity_list]).sum(axis=1) > 0, 1, 0))
+        print("percent: %f total: %d" % (percent, len(train_df)))
+        for key, value in sample_num_dict.items():
+            print(key, value, int((len(train_df) - value) / value))
+        print("")
 
     def create_emb_weights(self, word_index):
         with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
@@ -175,34 +173,35 @@ class Trainer:
         else:
             rnn_size = 2
             hidden_size = 2
-        # 输入层
-        token_input = Input(shape=(self.max_len,), dtype="int32")
         # 嵌入层
+        token_input = Input(shape=(self.max_len,), dtype="int32")
         embedding_layer = Embedding(input_dim=emb_weights.shape[0],
                                     output_dim=emb_weights.shape[1],
                                     weights=[emb_weights],
                                     trainable=True)
         token_emb = embedding_layer(token_input)
+        emb_model = Model(token_input, token_emb)
+
+        # 网络层
+
+
+        emb_input = Input(shape=(self.max_len, 600,), dtype="float32")
+
+
         token_emb = SpatialDropout1D(0.2)(token_emb)
         output1 = Bidirectional(CuDNNGRU(rnn_size, return_sequences=True))(token_emb)
         output2 = Bidirectional(CuDNNLSTM(rnn_size, return_sequences=True))(token_emb)
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
-        concat_output = concatenate([output1, output2])
-        concat_output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        # 身份输出层
-        identity_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        identity_output = Dense(9, activation="sigmoid")(identity_hidden)
+        output = concatenate([output1, output2])
         # 全连接层
-        output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
-        # 拼接
-        output = concatenate([output, identity_hidden, identity_output])
+        output = hidden_layer(output, hidden_size, "he_normal", "relu")
+        output = hidden_layer(output, hidden_size, "he_normal", "relu")
         # 输出层
         output1 = Dense(1, activation="sigmoid")(output)
         output2 = Dense(6, activation="sigmoid")(output)
-
-        model = Model(token_input, [output1, output2, identity_output])
+        model = Model(token_input, [output1, output2])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])
@@ -211,58 +210,92 @@ class Trainer:
 
     def train(self, epochs=5, batch_size=16):
         if self.debug_mode: epochs = 1
-        dataset = self.create_train_data()
-        train_tokens = dataset["train_tokens"]
-        train_label = dataset["train_label"]
-        train_type_labels = dataset["train_type_labels"]
-        valid_tokens = dataset["valid_tokens"]
-        valid_label = dataset["valid_label"]
-        valid_type_labels = dataset["valid_type_labels"]
-        test_tokens = dataset["test_tokens"]
-        tokenizer = dataset["tokenizer"]
-
-        valid_identity_type_labels = dataset["valid_identity_type_labels"]
-        train_identity_type_labels = dataset["train_identity_type_labels"]
-        valid_identity_type_binary_lables = dataset["valid_identity_type_binary_lables"]
-        train_identity_type_binary_lables = dataset["train_identity_type_binary_lables"]
-        valid_identity_sum_label = dataset["valid_identity_sum_label"]
-        train_identity_sum_label = dataset["train_identity_sum_label"]
-        valid_identity_binary_label = dataset["valid_identity_binary_label"]
-        train_identity_binary_label = dataset["train_identity_binary_label"]
-
-        sample_weights = self.cal_sample_weights()
-        word_embedding = self.create_emb_weights(tokenizer.word_index)
-        model = self.build_model(word_embedding)
-        previous_auc_score = 0
-        for epoch in range(epochs):
-            # TODO:先不用test
-            model.fit(x=train_tokens,
-                      y=[train_label, train_type_labels, train_identity_type_labels],
-                      batch_size=batch_size,
-                      epochs=1,
-                      verbose=2,
-                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
-                      callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
-                      )
-            # 打分
-            y_pred = model.predict(valid_tokens)[0]
-            auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
-            if auc_score < previous_auc_score: break
-            else: previous_auc_score = auc_score
-            print("auc_score:", auc_score)
-            if not self.debug_mode and epoch > 0:
-                model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
-        # del 训练相关输入和模型，手动清除显存
-        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,
-                            valid_identity_type_labels, train_identity_type_labels, valid_identity_type_binary_lables, train_identity_type_binary_lables, valid_identity_sum_label, train_identity_sum_label, valid_identity_binary_label, train_identity_binary_label]
-        for training_variable in training_history:
-            del training_variable
-        K.clear_session()
-        gc.collect()
+        #dataset = self.create_dataloader()
+        self.cal_sample_weights(0.2)
+        self.cal_sample_weights(0.3)
+        self.cal_sample_weights(0.5)
+        self.cal_sample_weights(1)
 
 
 if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
     trainer = Trainer(data_dir, "model_name", False)
     trainer.train(batch_size=16)
+
+    """
+    percent: 0.200000 total: 360974
+    target 21180 16
+    severe_toxicity 1 360973
+    obscene 1945 184
+    identity_attack 1190 302
+    insult 15593 22
+    threat 641 562
+    male 8191 43
+    female 11136 31
+    homosexual_gay_or_lesbian 1849 194
+    christian 7380 47
+    jewish 991 363
+    muslim 2035 176
+    black 3015 118
+    white 4386 81
+    psychiatric_or_mental_illness 902 399
+    np 26656 12
+    pn 21180 16
+    
+    percent: 0.300000 total: 541462
+    target 32202 15
+    severe_toxicity 1 541461
+    obscene 2753 195
+    identity_attack 1946 277
+    insult 24052 21
+    threat 889 608
+    male 11809 44
+    female 16285 32
+    homosexual_gay_or_lesbian 2728 197
+    christian 11167 47
+    jewish 2221 242
+    muslim 4064 132
+    black 4129 130
+    white 6005 89
+    psychiatric_or_mental_illness 1464 368
+    np 40053 12
+    pn 32202 15
+    
+    percent: 0.500000 total: 902437
+    target 51701 16
+    severe_toxicity 1 902436
+    obscene 3984 225
+    identity_attack 3498 256
+    insult 38665 22
+    threat 1348 668
+    male 19398 45
+    female 26472 33
+    homosexual_gay_or_lesbian 4429 202
+    christian 18894 46
+    jewish 4248 211
+    muslim 11600 76
+    black 5780 155
+    white 9323 95
+    psychiatric_or_mental_illness 2151 418
+    np 68599 12
+    pn 51701 16
+    
+    percent: 1.000000 total: 1804874
+    target 106438 15
+    severe_toxicity 8 225608
+    obscene 7648 234
+    identity_attack 7633 235
+    insult 79887 21
+    threat 2793 645
+    male 40036 44
+    female 50548 34
+    homosexual_gay_or_lesbian 10233 175
+    christian 35507 49
+    jewish 7239 248
+    muslim 19666 90
+    black 13869 129
+    white 23852 74
+    psychiatric_or_mental_illness 4077 441
+    np 135896 12
+    pn 106438 15
+    """

@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -121,8 +121,8 @@ class Trainer:
             sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
+            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 5
+            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 5
         sample_weights /= sample_weights.mean()
         # 值留训练集
         sample_weights = sample_weights[:self.train_len]
@@ -246,7 +246,7 @@ class Trainer:
             if auc_score < previous_auc_score: break
             else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
-            if not self.debug_mode:
+            if not self.debug_mode and epoch > 0:
                 model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型，手动清除显存
         training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,

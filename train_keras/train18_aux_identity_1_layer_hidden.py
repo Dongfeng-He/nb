@@ -6,19 +6,27 @@ from keras.layers import *
 from keras.preprocessing import text, sequence
 from keras.callbacks import LearningRateScheduler
 from evaluation import *
+from keras import backend as K
+import gc
 
 
 class Trainer:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, model_name, debug_mode=False):
         self.data_dir = data_dir
+        self.debug_mode = debug_mode
+        self.model_name = model_name
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['target', 'severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed = 5
         self.max_len = 220
         self.split_ratio = 0.95
-        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
-        self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
+        if not self.debug_mode:
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
+            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
+        else:
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
+            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
 
@@ -36,6 +44,26 @@ class Trainer:
         train_comments = self.train_df["comment_text"].astype(str)
         train_label = self.train_df["target"].values
         train_type_labels = self.train_df[self.toxicity_type_list].values
+
+        # 身份原始值
+        train_identity_values = self.train_df[self.identity_list].fillna(0.).values
+        # 所有身份原始值之和
+        train_identity_sum = train_identity_values.sum(axis=1)
+        # 将身份之和限制在1以下（sigmoid）
+        train_identity_sum_label = np.where(train_identity_sum > 1, 1, train_identity_sum)
+        # 身份01值
+        train_identity_binary = copy.deepcopy(self.train_df[self.identity_list])
+        for column in self.identity_list:
+            train_identity_binary[column] = np.where(train_identity_binary[column] > 0.5, 1, 0)
+        # 身份01值有一个就算1
+        train_identity_binary_sum = train_identity_binary.sum(axis=1)
+        train_identity_or_binary = np.where(train_identity_binary_sum >= 1, 1, 0)
+        # 所有身份标签
+        train_identity_type_labels = train_identity_values
+        train_identity_type_binary_lables = train_identity_binary
+        train_identity_sum_label = train_identity_sum_label
+        train_identity_binary_label = train_identity_or_binary
+
         test_comments = self.test_df["comment_text"].astype(str)
         # tokenizer 训练
         tokenizer = text.Tokenizer(filters=self.stopwords)
@@ -53,6 +81,17 @@ class Trainer:
         train_tokens = train_tokens[:self.train_len]
         train_label = train_label[:self.train_len]
         train_type_labels = train_type_labels[:self.train_len]
+
+        # 划分身份标签
+        valid_identity_type_labels = train_identity_type_labels[self.train_len:]
+        train_identity_type_labels = train_identity_type_labels[:self.train_len]
+        valid_identity_type_binary_lables = train_identity_type_binary_lables[self.train_len:]
+        train_identity_type_binary_lables = train_identity_type_binary_lables[:self.train_len]
+        valid_identity_sum_label = train_identity_sum_label[self.train_len:]
+        train_identity_sum_label = train_identity_sum_label[:self.train_len]
+        valid_identity_binary_label = train_identity_binary_label[self.train_len:]
+        train_identity_binary_label = train_identity_binary_label[:self.train_len]
+
         # 数据集
         dataset = {"train_tokens": train_tokens,
                    "train_label": train_label,
@@ -61,7 +100,15 @@ class Trainer:
                    "valid_label": valid_label,
                    "valid_type_labels": valid_type_labels,
                    "test_tokens": test_tokens,
-                   "tokenizer": tokenizer}
+                   "tokenizer": tokenizer,
+                   "valid_identity_type_labels": valid_identity_type_labels,
+                   "train_identity_type_labels": train_identity_type_labels,
+                   "valid_identity_type_binary_lables": valid_identity_type_binary_lables,
+                   "train_identity_type_binary_lables": train_identity_type_binary_lables,
+                   "valid_identity_sum_label": valid_identity_sum_label,
+                   "train_identity_sum_label": train_identity_sum_label,
+                   "valid_identity_binary_label": valid_identity_binary_label,
+                   "train_identity_binary_label": train_identity_binary_label}
         return dataset
 
     def cal_sample_weights(self):
@@ -70,12 +117,12 @@ class Trainer:
             self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
         sample_weights = np.ones(len(self.train_df))
         sample_weights += self.train_df["target"]
-        if True:
+        if False:
             sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 5
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 5
+            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
+            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
         sample_weights /= sample_weights.mean()
         # 值留训练集
         sample_weights = sample_weights[:self.train_len]
@@ -84,7 +131,8 @@ class Trainer:
     def create_emb_weights(self, word_index):
         with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
             fasttext_emb_dict = {}
-            for line in f:
+            for i, line in enumerate(f):
+                if i == 1000 and self.debug_mode: break
                 split = line.strip().split(" ")
                 word = split[0]
                 if word not in word_index: continue
@@ -92,7 +140,8 @@ class Trainer:
                 fasttext_emb_dict[word] = emb
         with open(os.path.join(self.data_dir, "glove.840B.300d.txt"), "r") as f:
             glove_emb_dict = {}
-            for line in f:
+            for i, line in enumerate(f):
+                if i == 1000 and self.debug_mode: break
                 split = line.strip().split(" ")
                 word = split[0]
                 if word not in word_index: continue
@@ -120,6 +169,12 @@ class Trainer:
             output = Dropout(dropout_rate)(output)
             return output
 
+        if not self.debug_mode:
+            rnn_size = 256
+            hidden_size = 512
+        else:
+            rnn_size = 2
+            hidden_size = 2
         # 输入层
         token_input = Input(shape=(self.max_len,), dtype="int32")
         # 嵌入层
@@ -129,19 +184,27 @@ class Trainer:
                                     trainable=True)
         token_emb = embedding_layer(token_input)
         token_emb = SpatialDropout1D(0.2)(token_emb)
-        output1 = Bidirectional(CuDNNGRU(256, return_sequences=True))(token_emb)
-        output2 = Bidirectional(CuDNNLSTM(256, return_sequences=True))(token_emb)
+        output1 = Bidirectional(CuDNNGRU(rnn_size, return_sequences=True))(token_emb)
+        output2 = Bidirectional(CuDNNLSTM(rnn_size, return_sequences=True))(token_emb)
         output1 = GlobalMaxPooling1D()(output1)
         output2 = GlobalMaxPooling1D()(output2)
         # 拼接
-        output = concatenate([output1, output2])
+        concat_output = concatenate([output1, output2])
+        concat_output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        # 身份输出层
+        identity_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        identity_output = Dense(9, activation="sigmoid")(identity_hidden)
+        # toxic 类别输出层
+        type_hidden = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        type_output = Dense(6, activation="sigmoid")(type_hidden)
         # 全连接层
-        output = hidden_layer(output, 512, "he_normal", "relu")
-        output = hidden_layer(output, 512, "he_normal", "relu")
+        output = hidden_layer(concat_output, hidden_size, "he_normal", "relu")
+        # 拼接
+        output = concatenate([output, identity_hidden, type_hidden])
         # 输出层
-        output1 = Dense(1, activation="sigmoid")(output)
-        output2 = Dense(6, activation="sigmoid")(output)
-        model = Model(token_input, [output1, output2])
+        output = Dense(1, activation="sigmoid")(output)
+
+        model = Model(token_input, [output, type_output, identity_output])
         model.compile(optimizer="adam",
                       loss="binary_crossentropy",
                       metrics=["acc"])
@@ -149,6 +212,7 @@ class Trainer:
         return model
 
     def train(self, epochs=5, batch_size=16):
+        if self.debug_mode: epochs = 1
         dataset = self.create_train_data()
         train_tokens = dataset["train_tokens"]
         train_label = dataset["train_label"]
@@ -158,28 +222,49 @@ class Trainer:
         valid_type_labels = dataset["valid_type_labels"]
         test_tokens = dataset["test_tokens"]
         tokenizer = dataset["tokenizer"]
+
+        valid_identity_type_labels = dataset["valid_identity_type_labels"]
+        train_identity_type_labels = dataset["train_identity_type_labels"]
+        valid_identity_type_binary_lables = dataset["valid_identity_type_binary_lables"]
+        train_identity_type_binary_lables = dataset["train_identity_type_binary_lables"]
+        valid_identity_sum_label = dataset["valid_identity_sum_label"]
+        train_identity_sum_label = dataset["train_identity_sum_label"]
+        valid_identity_binary_label = dataset["valid_identity_binary_label"]
+        train_identity_binary_label = dataset["train_identity_binary_label"]
+
         sample_weights = self.cal_sample_weights()
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         model = self.build_model(word_embedding)
+        previous_auc_score = 0
         for epoch in range(epochs):
             # TODO:先不用test
             model.fit(x=train_tokens,
-                      y=[train_label, train_type_labels],
+                      y=[train_label, train_type_labels, train_identity_type_labels],
                       batch_size=batch_size,
                       epochs=1,
-                      verbose=1,
-                      validation_data=([valid_tokens], [valid_label, valid_type_labels]),
-                      sample_weight=[sample_weights, np.ones_like(sample_weights)],
+                      verbose=2,
+                      validation_data=([valid_tokens], [valid_label, valid_type_labels, valid_identity_type_labels]),
+                      sample_weight=[sample_weights, np.ones_like(sample_weights), np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
                       )
             # 打分
             y_pred = model.predict(valid_tokens)[0]
             auc_score = self.evaluator.get_final_metric(y_pred) # y_pred 可以是 (n, 1) 也可以是 (n,)  不 squeeze 也没关系。y_true 必须要有正有负，否则无法计算 auc
+            if auc_score < previous_auc_score: break
+            else: previous_auc_score = auc_score
             print("auc_score:", auc_score)
-            model.save(os.path.join(self.data_dir, "model/model_%.5f" % auc_score))
+            if not self.debug_mode and epoch > 0:
+                model.save(os.path.join(self.data_dir, "model/model[%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
+        # del 训练相关输入和模型，手动清除显存
+        training_history = [dataset, train_tokens, train_label, train_type_labels, valid_tokens, valid_label, valid_type_labels, test_tokens, tokenizer, sample_weights, word_embedding, model,
+                            valid_identity_type_labels, train_identity_type_labels, valid_identity_type_binary_lables, train_identity_type_binary_lables, valid_identity_sum_label, train_identity_sum_label, valid_identity_binary_label, train_identity_binary_label]
+        for training_variable in training_history:
+            del training_variable
+        K.clear_session()
+        gc.collect()
 
 
 if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
-    trainer = Trainer(data_dir=data_dir)
+    trainer = Trainer(data_dir, "model_name", False)
     trainer.train(batch_size=16)

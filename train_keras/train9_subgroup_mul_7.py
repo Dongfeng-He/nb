@@ -22,10 +22,10 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -76,14 +76,14 @@ class Trainer:
         # 把 train_df 中的 target 和 所有身份的值变成 bool
         for column in self.identity_list + ["target"]:
             self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
-        sample_weights = np.zeros(len(self.train_df))
+        sample_weights = np.ones(len(self.train_df))
         sample_weights += self.train_df["target"]
-        if True:
+        if False:
             sample_weights += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             sample_weights += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 5
-            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 5
+            sample_weights += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 7
+            sample_weights += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 7
         sample_weights /= sample_weights.mean()
         # 值留训练集
         sample_weights = sample_weights[:self.train_len]
@@ -185,7 +185,7 @@ class Trainer:
                       y=[train_label, train_type_labels],
                       batch_size=batch_size,
                       epochs=1,
-                      verbose=1,
+                      verbose=2,
                       validation_data=([valid_tokens], [valid_label, valid_type_labels]),
                       sample_weight=[sample_weights, np.ones_like(sample_weights)],
                       callbacks=[LearningRateScheduler(lambda _: 1e-3 * (0.6 ** epoch))]
