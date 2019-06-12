@@ -125,7 +125,7 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train1_original_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     """
-    from train_pytorch.train7_clean import Trainer
+    from train_pytorch.train6_clean_focal import Trainer
     print("start to train_pytorch: train7_clean")
     trainer = Trainer(data_dir=data_dir, model_name="train7_clean", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()

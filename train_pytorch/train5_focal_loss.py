@@ -31,7 +31,6 @@ class FocalLoss(nn.Module):
         pt = torch.exp(-bce_loss)
         focal_loss = self.alpha * (1-pt)**self.gamma * bce_loss
         #focal_loss = (1 - pt) ** self.gamma * bce_loss
-
         if self.reduce:
             return torch.mean(focal_loss)
         else:
@@ -306,7 +305,7 @@ class Trainer:
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
-    def custom_loss(self, y_pred, y_batch, target_weight=1., aux_weight=1., identity_weight=1.):
+    def custom_loss(self, y_pred, y_batch, epoch, target_weight=1., aux_weight=1., identity_weight=1.):
         target_pred = y_pred[:, 0]
         target_true = y_batch[:, 0]
         aux_pred = y_pred[:, 1: 6]
@@ -315,12 +314,12 @@ class Trainer:
         identity_true = y_batch[:, 6:]
         target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if True:
+        if epoch > 7:
             aux_loss = FocalLoss()(aux_pred, aux_true)
         else:
             aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        if True:
+        if epoch > 7:
             identity_loss = FocalLoss()(identity_pred, identity_true)
         else:
             identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
@@ -365,7 +364,7 @@ class Trainer:
                 identity_weight_batch = batch_data[4]
                 #y_pred = model(*x_batch)
                 y_pred = model(x_batch)
-                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, target_weight_batch, aux_weight_batch, identity_weight_batch)
+                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss + aux_loss + identity_loss
                 #loss = loss_fn(y_pred, y_batch)
                 optimizer.zero_grad()
