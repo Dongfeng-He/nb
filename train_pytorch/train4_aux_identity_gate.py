@@ -63,9 +63,13 @@ class NeuralNet(nn.Module):
         h_conc = torch.cat((max_pool, avg_pool), 1)
 
         identity_hidden = self.linear_identity_out2(h_conc)
+        identity_hidden = F.relu(identity_hidden)
+        #identity_hidden = F.dropout(identity_hidden, p=0.3)
         identity_result = self.linear_identity_out(identity_hidden)
         h_conc2 = torch.cat((h_conc, identity_hidden), 1)
-        gate = F.sigmoid(self.linear3(h_conc2))
+        gate_hidden = self.linear3(h_conc2)
+        #gate_hidden = F.dropout(gate_hidden, p=0.3)
+        gate = torch.sigmoid(gate_hidden)
         h_conc = h_conc * gate
 
         h_conc_linear1 = F.relu(self.linear1(h_conc))
