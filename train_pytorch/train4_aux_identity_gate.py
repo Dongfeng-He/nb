@@ -66,12 +66,12 @@ class NeuralNet(nn.Module):
 
         identity_hidden = self.linear_identity_out2(h_conc)
         identity_hidden = F.relu(identity_hidden)
-        identity_hidden = self.bn1(identity_hidden)
+        #identity_hidden = self.bn1(identity_hidden)
         identity_hidden = F.dropout(identity_hidden, p=0.3)
         identity_result = self.linear_identity_out(identity_hidden)
         h_conc2 = torch.cat((h_conc, identity_hidden), 1)
         gate_hidden = self.linear3(h_conc2)
-        gate_hidden = self.bn2(gate_hidden)
+        #gate_hidden = self.bn2(gate_hidden)
         gate = torch.sigmoid(gate_hidden)
         #gate = F.dropout(gate, p=0.3)
         h_conc = h_conc * gate
@@ -288,12 +288,12 @@ class Trainer:
         aux_pred = y_pred[:, 1: 6]
         aux_true = y_batch[:, 1: 6]
         identity_pred = y_pred[:, 6:]
-        identity_batch = y_batch[:, 6:]
+        identity_true = y_batch[:, 6:]
         target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
         aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_batch)
+        identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
         identity_loss = torch.mean(identity_loss * identity_weight)
         return target_loss, aux_loss, identity_loss
 
