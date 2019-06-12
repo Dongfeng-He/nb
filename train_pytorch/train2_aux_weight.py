@@ -76,8 +76,8 @@ class Trainer:
         self.model_name = model_name
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
-        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
-                            "threat": 608, "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
+        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21, "threat": 608,
+                            "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
                             "jewish": 242, "muslim": 132, "black": 130, "white": 89, "psychiatric_or_mental_illness": 368,
                             "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'

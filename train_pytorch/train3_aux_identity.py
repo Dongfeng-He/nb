@@ -204,7 +204,7 @@ class Trainer:
         # identity weight
         identity_weight = np.zeros((len(self.train_df), len(self.identity_list)))
         for i, column in enumerate(self.identity_list):
-            identity_weight[:, i] = np.where(self.train_df[column] > 0.5, 1, 1)
+            identity_weight[:, i] = np.where(self.train_df[column] > 0.5, 10, 1)
         # target weight
         for column in self.identity_list + ["target"]:
             self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
