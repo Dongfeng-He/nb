@@ -126,8 +126,8 @@ if __name__ == "__main__":
     trainer.train()
     """
     from train_pytorch.train6_clean_focal import Trainer
-    print("start to train_pytorch: train7_clean")
-    trainer = Trainer(data_dir=data_dir, model_name="train7_clean", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
+    print("start to train_pytorch: train6_clean_focal")
+    trainer = Trainer(data_dir=data_dir, model_name="train6_clean_focal", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
