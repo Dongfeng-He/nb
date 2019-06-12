@@ -125,9 +125,9 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train1_original_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     """
-    from train_pytorch.train5_aux_identity_gate import Trainer
-    print("start to train_pytorch: train5_aux_identity_gate")
-    trainer = Trainer(data_dir=data_dir, model_name="train5_aux_identity_gate", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
+    from train_pytorch.train6_focal_loss import Trainer
+    print("start to train_pytorch: train6_focal_loss")
+    trainer = Trainer(data_dir=data_dir, model_name="train6_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
