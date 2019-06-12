@@ -48,6 +48,8 @@ class NeuralNet(nn.Module):
         self.linear_aux_out = nn.Linear(dense_size, 5)
         self.linear_identity_out = nn.Linear(dense_size, 9)
         self.linear_identity_out2 = nn.Linear(dense_size, dense_size)
+        self.bn1 = nn.BatchNorm1d(dense_size)
+        self.bn2 = nn.BatchNorm1d(dense_size)
 
     def forward(self, x):
         # 嵌入层
@@ -64,10 +66,12 @@ class NeuralNet(nn.Module):
 
         identity_hidden = self.linear_identity_out2(h_conc)
         identity_hidden = F.relu(identity_hidden)
+        identity_hidden = self.bn1(identity_hidden)
         identity_hidden = F.dropout(identity_hidden, p=0.3)
         identity_result = self.linear_identity_out(identity_hidden)
         h_conc2 = torch.cat((h_conc, identity_hidden), 1)
         gate_hidden = self.linear3(h_conc2)
+        gate_hidden = self.bn2(gate_hidden)
         gate = torch.sigmoid(gate_hidden)
         #gate = F.dropout(gate, p=0.3)
         h_conc = h_conc * gate
@@ -348,14 +352,6 @@ class Trainer:
                 y_pred[i * self.batch_size: (i + 1) * self.batch_size] = batch_y_pred
             # 计算得分
             auc_score = self.evaluator.get_final_metric(y_pred)
-            if auc_score < previous_auc_score:
-                if stop_flag == 0:
-                    stop_flag += 1
-                else:
-                    break
-            else:
-                stop_flag = 0
-                previous_auc_score = auc_score
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()

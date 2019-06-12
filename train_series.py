@@ -127,7 +127,7 @@ if __name__ == "__main__":
     """
     from train_pytorch.train4_aux_identity_gate import Trainer
     print("start to train_pytorch: train4_aux_identity_gate")
-    trainer = Trainer(data_dir=data_dir, model_name="train4_aux_identity_gate", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train4_aux_identity_gate", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
