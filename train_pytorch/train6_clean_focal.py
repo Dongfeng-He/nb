@@ -445,7 +445,7 @@ class Trainer:
                 identity_weight_batch = batch_data[4]
                 #y_pred = model(*x_batch)
                 y_pred = model(x_batch)
-                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, target_weight_batch, aux_weight_batch, identity_weight_batch)
+                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss + aux_loss + identity_loss
                 #loss = loss_fn(y_pred, y_batch)
                 optimizer.zero_grad()
