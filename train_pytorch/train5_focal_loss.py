@@ -12,6 +12,30 @@ import numpy as np
 import time
 import math
 import gc
+from torch.autograd import Variable
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, logits=True, reduce=False):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.logits = logits
+        self.reduce = reduce
+
+    def forward(self, inputs, targets):
+        if self.logits:
+            bce_loss = nn.BCEWithLogitsLoss(reduction="none")(inputs, targets)
+        else:
+            bce_loss = nn.BCELoss(reduction="none")(inputs, targets)
+        pt = torch.exp(-bce_loss)
+        focal_loss = self.alpha * (1-pt)**self.gamma * bce_loss
+        #focal_loss = (1 - pt) ** self.gamma * bce_loss
+
+        if self.reduce:
+            return torch.mean(focal_loss)
+        else:
+            return focal_loss
 
 
 class SpatialDropout(nn.Dropout2d):
@@ -42,7 +66,7 @@ class NeuralNet(nn.Module):
         # 全连接层
         self.linear1 = nn.Linear(dense_size, dense_size)
         self.linear2 = nn.Linear(dense_size, dense_size)
-        self.linear3 = nn.Linear(dense_size, dense_size)
+        self.linear3 = nn.Linear(dense_size * 2, dense_size)
         # 输出层
         self.linear_out = nn.Linear(dense_size, 1)
         self.linear_aux_out = nn.Linear(dense_size, 5)
@@ -69,8 +93,8 @@ class NeuralNet(nn.Module):
         #identity_hidden = self.bn1(identity_hidden)
         identity_hidden = F.dropout(identity_hidden, p=0.3)
         identity_result = self.linear_identity_out(identity_hidden)
-        #h_conc2 = torch.cat((h_conc, identity_hidden), 1)
-        gate_hidden = self.linear3(identity_hidden)
+        h_conc2 = torch.cat((h_conc, identity_hidden), 1)
+        gate_hidden = self.linear3(h_conc2)
         #gate_hidden = self.bn2(gate_hidden)
         gate = torch.sigmoid(gate_hidden)
         #gate = F.dropout(gate, p=0.3)
@@ -291,9 +315,15 @@ class Trainer:
         identity_true = y_batch[:, 6:]
         target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
+        if True:
+            aux_loss = FocalLoss()(aux_pred, aux_true)
+        else:
+            aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
+        if True:
+            identity_loss = FocalLoss()(identity_pred, identity_true)
+        else:
+            identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
         identity_loss = torch.mean(identity_loss * identity_weight)
         return target_loss, aux_loss, identity_loss
 
