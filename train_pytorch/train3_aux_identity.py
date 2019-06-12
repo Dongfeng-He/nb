@@ -45,6 +45,7 @@ class NeuralNet(nn.Module):
         # 输出层
         self.linear_out = nn.Linear(dense_size, 1)
         self.linear_aux_out = nn.Linear(dense_size, 5)
+        self.linear_identity_out = nn.Linear(dense_size, 9)
 
     def forward(self, x):
         # 嵌入层
@@ -65,7 +66,8 @@ class NeuralNet(nn.Module):
         # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
         result = self.linear_out(hidden)
         aux_result = self.linear_aux_out(hidden)
-        out = torch.cat([result, aux_result], 1)
+        identity_result = self.linear_identity_out(hidden)
+        out = torch.cat([result, aux_result, identity_result], 1)
         return out
 
 
@@ -156,8 +158,6 @@ class Trainer:
         train_tokens = train_tokens[:self.train_len]
         train_label = train_label[:self.train_len]
         train_type_labels = train_type_labels[:self.train_len]
-
-        # 划分身份标签
         valid_identity_type_labels = train_identity_type_labels[self.train_len:]
         train_identity_type_labels = train_identity_type_labels[:self.train_len]
         valid_identity_type_binary_lables = train_identity_type_binary_lables[self.train_len:]
@@ -173,8 +173,8 @@ class Trainer:
         # 将符号化数据转成 tensor
         train_x_tensor = torch.tensor(train_tokens, dtype=torch.long)
         valid_x_tensor = torch.tensor(valid_tokens, dtype=torch.long)
-        train_y_tensor = torch.tensor(np.hstack([train_label[:, np.newaxis], train_type_labels]), dtype=torch.float32)
-        valid_y_tensor = torch.tensor(np.hstack([valid_label[:, np.newaxis], valid_type_labels]), dtype=torch.float32)
+        train_y_tensor = torch.tensor(np.hstack([train_label[:, np.newaxis], train_type_labels, train_identity_type_labels]), dtype=torch.float32)
+        valid_y_tensor = torch.tensor(np.hstack([valid_label[:, np.newaxis], valid_type_labels, valid_identity_type_labels]), dtype=torch.float32)
         target_weight_tensor = torch.tensor(target_weight, dtype=torch.float32)
         aux_weight_tensor = torch.tensor(aux_weight, dtype=torch.float32)
         identity_weight_tensor = torch.tensor(identity_weight, dtype=torch.float32)
@@ -204,12 +204,12 @@ class Trainer:
         # identity weight
         identity_weight = np.zeros((len(self.train_df), len(self.identity_list)))
         for i, column in enumerate(self.identity_list):
-            identity_weight[:, i] = np.where(self.train_df[column] > 0.5, 10, 1)
+            identity_weight[:, i] = np.where(self.train_df[column] > 0.5, 1, 1)
         # target weight
         for column in self.identity_list + ["target"]:
             self.train_df[column] = np.where(self.train_df[column] > 0.5, True, False)
         target_weight = np.ones(len(self.train_df))
-        target_weight += self.train_df["target"] * 3
+        target_weight += self.train_df["target"]
         if False:
             target_weight += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             target_weight += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
@@ -265,19 +265,20 @@ class Trainer:
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
-    def custom_loss(self, y_pred, y_batch, target_weight=None, aux_weight=None, identity_weight=None):
+    def custom_loss(self, y_pred, y_batch, target_weight=1., aux_weight=1., identity_weight=1.):
         target_pred = y_pred[:, 0]
         target_true = y_batch[:, 0]
-        aux_pred = y_pred[:, 1:]
-        aux_true = y_batch[:, 1:]
+        aux_pred = y_pred[:, 1: 6]
+        aux_true = y_batch[:, 1: 6]
+        identity_pred = y_pred[:, 6:]
+        identity_batch = y_batch[:, 6:]
         target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if False:
-            aux_loss = nn.BCEWithLogitsLoss()(aux_pred, aux_true)
-        else:
-            aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
-            aux_loss = torch.mean(aux_loss * aux_weight)
-        return target_loss, aux_loss
+        aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
+        aux_loss = torch.mean(aux_loss * aux_weight)
+        identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_batch)
+        identity_loss = torch.mean(identity_loss * identity_weight)
+        return target_loss, aux_loss, identity_loss
 
     def train(self):
         if self.debug_mode: self.epochs = 1
@@ -317,8 +318,8 @@ class Trainer:
                 identity_weight_batch = batch_data[4]
                 #y_pred = model(*x_batch)
                 y_pred = model(x_batch)
-                target_loss, aux_loss = self.custom_loss(y_pred, y_batch, target_weight_batch, aux_weight_batch, identity_weight_batch)
-                loss = target_loss + aux_loss
+                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, target_weight_batch, aux_weight_batch, identity_weight_batch)
+                loss = target_loss + aux_loss + identity_loss
                 #loss = loss_fn(y_pred, y_batch)
                 optimizer.zero_grad()
                 loss.backward()

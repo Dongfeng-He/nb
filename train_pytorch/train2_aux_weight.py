@@ -214,8 +214,8 @@ class Trainer:
             target_weight += (~self.train_df["target"]) * self.train_df[self.identity_list].sum(axis=1)
             target_weight += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
-            target_weight += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 1
-            target_weight += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 1
+            target_weight += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 3
+            target_weight += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 3
         target_weight /= target_weight.mean()
         # 只留训练集
         target_weight = target_weight[:self.train_len]
