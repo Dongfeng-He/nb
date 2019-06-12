@@ -211,7 +211,8 @@ class Trainer:
 
     def create_dataloader(self):
         # 读取输入输出
-        train_comments = self.train_df["comment_text"].astype(str)
+        #train_comments = self.train_df["comment_text"].astype(str)
+        train_comments = self.train_df["comment_text"].progress_apply(lambda x: self.clean_text(x))
         train_label = self.train_df["target"].values
         train_type_labels = self.train_df[self.toxicity_type_list].values
 
@@ -236,7 +237,8 @@ class Trainer:
 
         # tokenizer 训练
         # 清理数据
-        test_comments = self.test_df["comment_text"].astype(str).progress_apply(lambda x: self.clean_text(x))
+        #test_comments = self.test_df["comment_text"].astype(str)
+        test_comments = self.test_df["comment_text"].progress_apply(lambda x: self.clean_text(x))
         #tokenizer = text.Tokenizer(filters=self.stopwords)
         # 如果 filter 不置为空，会自动删掉很多字符，lower 不置为 False 会自动全部小写
         tokenizer = text.Tokenizer(filters='', lower=False)
