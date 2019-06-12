@@ -350,7 +350,8 @@ class Trainer:
         for epoch in range(self.epochs):
             start_time = time.time()
             # 调整一次学习速率
-            scheduler.step()
+            if epoch <= 9:
+                scheduler.step()
             # 切换为训练模式
             model.train()
             # 初始化当前 epoch 的 loss

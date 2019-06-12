@@ -12,7 +12,23 @@ import numpy as np
 import time
 import math
 import gc
-import re
+from torch.autograd import Variable
+
+
+def f1_loss(predict, target):
+    loss = 0
+    lack_cls = target.sum(dim=0) == 0
+    if lack_cls.any():
+        loss += F.binary_cross_entropy_with_logits(
+            predict[:, lack_cls], target[:, lack_cls])
+    predict = torch.sigmoid(predict)
+    predict = torch.clamp(predict * (1-target), min=0.01) + predict * target
+    tp = predict * target
+    tp = tp.sum(dim=0)
+    precision = tp / (predict.sum(dim=0) + 1e-8)
+    recall = tp / (target.sum(dim=0) + 1e-8)
+    f1 = 2 * (precision * recall / (precision + recall + 1e-8))
+    return 1 - f1.mean() + loss
 
 
 class FocalLoss(nn.Module):
@@ -137,10 +153,6 @@ class Trainer:
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
-        self.mapping_dict = None
-        self.contraction_mapping = None
-        self.contraction_re = None
-        self.init_text_cleaner()
 
     def seed_everything(self, seed=1234):
         random.seed(seed)
@@ -159,82 +171,9 @@ class Trainer:
         evaluator = JigsawEvaluator(valid_y_true, valid_y_identity) # y_true 必须是0或1，不能是离散值
         return evaluator
 
-    def init_text_cleaner(self):
-        # 有词向量的特殊字符进行隔离，没有的进行删除
-        symbols_to_isolate = '.,?!-;*"…:—()%#$&_/@＼・ω+=”“[]^–>\\°<~•≠™ˈʊɒ∞§{}·τα❤☺ɡ|¢→̶`❥━┣┫┗Ｏ►★©―ɪ✔®\x96\x92●£♥➤´¹☕≈÷♡◐║▬′ɔː€۩۞†μ✒➥═☆ˌ◄½ʻπδηλσερνʃ✬ＳＵＰＥＲＩＴ☻±♍µº¾✓◾؟．⬅℅»Вав❣⋅¿¬♫ＣＭβ█▓▒░⇒⭐›¡₂₃❧▰▔◞▀▂▃▄▅▆▇↙γ̄″☹➡«φ⅓„✋：¥̲̅́∙‛◇✏▷❓❗¶˚˙）сиʿ✨。ɑ\x80◕！％¯−ﬂﬁ₁²ʌ¼⁴⁄₄⌠♭✘╪▶☭✭♪☔☠♂☃☎✈✌✰❆☙○‣⚓年∎ℒ▪▙☏⅛ｃａｓǀ℮¸ｗ‚∼‖ℳ❄←☼⋆ʒ⊂、⅔¨͡๏⚾⚽Φ×θ￦？（℃⏩☮⚠月✊❌⭕▸■⇌☐☑⚡☄ǫ╭∩╮，例＞ʕɐ̣Δ₀✞┈╱╲▏▕┃╰▊▋╯┳┊≥☒↑☝ɹ✅☛♩☞ＡＪＢ◔◡↓♀⬆̱ℏ\x91⠀ˤ╚↺⇤∏✾◦♬³の｜／∵∴√Ω¤☜▲↳▫‿⬇✧ｏｖｍ－２０８＇‰≤∕ˆ⚜☁'
-        symbols_to_delete = '\n🍕\r🐵😑\xa0\ue014\t\uf818\uf04a\xad😢🐶️\uf0e0😜😎👊\u200b\u200e😁عدويهصقأناخلىبمغر😍💖💵Е👎😀😂\u202a\u202c🔥😄🏻💥ᴍʏʀᴇɴᴅᴏᴀᴋʜᴜʟᴛᴄᴘʙғᴊᴡɢ😋👏שלוםבי😱‼\x81エンジ故障\u2009🚌ᴵ͞🌟😊😳😧🙀😐😕\u200f👍😮😃😘אעכח💩💯⛽🚄🏼ஜ😖ᴠ🚲‐😟😈💪🙏🎯🌹😇💔😡\x7f👌ἐὶήιὲκἀίῃἴξ🙄Ｈ😠\ufeff\u2028😉😤⛺🙂\u3000تحكسة👮💙فزط😏🍾🎉😞\u2008🏾😅😭👻😥😔😓🏽🎆🍻🍽🎶🌺🤔😪\x08‑🐰🐇🐱🙆😨🙃💕𝘊𝘦𝘳𝘢𝘵𝘰𝘤𝘺𝘴𝘪𝘧𝘮𝘣💗💚地獄谷улкнПоАН🐾🐕😆ה🔗🚽歌舞伎🙈😴🏿🤗🇺🇸мυтѕ⤵🏆🎃😩\u200a🌠🐟💫💰💎эпрд\x95🖐🙅⛲🍰🤐👆🙌\u2002💛🙁👀🙊🙉\u2004ˢᵒʳʸᴼᴷᴺʷᵗʰᵉᵘ\x13🚬🤓\ue602😵άοόςέὸתמדףנרךצט😒͝🆕👅👥👄🔄🔤👉👤👶👲🔛🎓\uf0b7\uf04c\x9f\x10成都😣⏺😌🤑🌏😯ех😲Ἰᾶὁ💞🚓🔔📚🏀👐\u202d💤🍇\ue613小土豆🏡❔⁉\u202f👠》कर्मा🇹🇼🌸蔡英文🌞🎲レクサス😛外国人关系Сб💋💀🎄💜🤢َِьыгя不是\x9c\x9d🗑\u2005💃📣👿༼つ༽😰ḷЗз▱ц￼🤣卖温哥华议会下降你失去所有的钱加拿大坏税骗子🐝ツ🎅\x85🍺آإشء🎵🌎͟ἔ油别克🤡🤥😬🤧й\u2003🚀🤴ʲшчИОРФДЯМюж😝🖑ὐύύ特殊作戦群щ💨圆明园קℐ🏈😺🌍⏏ệ🍔🐮🍁🍆🍑🌮🌯🤦\u200d𝓒𝓲𝓿𝓵안영하세요ЖљКћ🍀😫🤤ῦ我出生在了可以说普通话汉语好极🎼🕺🍸🥂🗽🎇🎊🆘🤠👩🖒🚪天一家⚲\u2006⚭⚆⬭⬯⏖新✀╌🇫🇷🇩🇪🇮🇬🇧😷🇨🇦ХШ🌐\x1f杀鸡给猴看ʁ𝗪𝗵𝗲𝗻𝘆𝗼𝘂𝗿𝗮𝗹𝗶𝘇𝗯𝘁𝗰𝘀𝘅𝗽𝘄𝗱📺ϖ\u2000үսᴦᎥһͺ\u2007հ\u2001ɩｙｅ൦ｌƽｈ𝐓𝐡𝐞𝐫𝐮𝐝𝐚𝐃𝐜𝐩𝐭𝐢𝐨𝐧Ƅᴨןᑯ໐ΤᏧ௦Іᴑ܁𝐬𝐰𝐲𝐛𝐦𝐯𝐑𝐙𝐣𝐇𝐂𝐘𝟎ԜТᗞ౦〔Ꭻ𝐳𝐔𝐱𝟔𝟓𝐅🐋ﬃ💘💓ё𝘥𝘯𝘶💐🌋🌄🌅𝙬𝙖𝙨𝙤𝙣𝙡𝙮𝙘𝙠𝙚𝙙𝙜𝙧𝙥𝙩𝙪𝙗𝙞𝙝𝙛👺🐷ℋ𝐀𝐥𝐪🚶𝙢Ἱ🤘ͦ💸ج패티Ｗ𝙇ᵻ👂👃ɜ🎫\uf0a7БУі🚢🚂ગુજરાતીῆ🏃𝓬𝓻𝓴𝓮𝓽𝓼☘﴾̯﴿₽\ue807𝑻𝒆𝒍𝒕𝒉𝒓𝒖𝒂𝒏𝒅𝒔𝒎𝒗𝒊👽😙\u200cЛ‒🎾👹⎌🏒⛸公寓养宠物吗🏄🐀🚑🤷操美𝒑𝒚𝒐𝑴🤙🐒欢迎来到阿拉斯ספ𝙫🐈𝒌𝙊𝙭𝙆𝙋𝙍𝘼𝙅ﷻ🦄巨收赢得白鬼愤怒要买额ẽ🚗🐳𝟏𝐟𝟖𝟑𝟕𝒄𝟗𝐠𝙄𝙃👇锟斤拷𝗢𝟳𝟱𝟬⦁マルハニチロ株式社⛷한국어ㄸㅓ니͜ʖ𝘿𝙔₵𝒩ℯ𝒾𝓁𝒶𝓉𝓇𝓊𝓃𝓈𝓅ℴ𝒻𝒽𝓀𝓌𝒸𝓎𝙏ζ𝙟𝘃𝗺𝟮𝟭𝟯𝟲👋🦊多伦🐽🎻🎹⛓🏹🍷🦆为和中友谊祝贺与其想象对法如直接问用自己猜本传教士没积唯认识基督徒曾经让相信耶稣复活死怪他但当们聊些政治题时候战胜因圣把全堂结婚孩恐惧且栗谓这样还♾🎸🤕🤒⛑🎁批判检讨🏝🦁🙋😶쥐스탱트뤼도석유가격인상이경제황을렵게만들지않록잘관리해야합다캐나에서대마초와화약금의품런성분갈때는반드시허된사용🔫👁凸ὰ💲🗯𝙈Ἄ𝒇𝒈𝒘𝒃𝑬𝑶𝕾𝖙𝖗𝖆𝖎𝖌𝖍𝖕𝖊𝖔𝖑𝖉𝖓𝖐𝖜𝖞𝖚𝖇𝕿𝖘𝖄𝖛𝖒𝖋𝖂𝕴𝖟𝖈𝕸👑🚿💡知彼百\uf005𝙀𝒛𝑲𝑳𝑾𝒋𝟒😦𝙒𝘾𝘽🏐𝘩𝘨ὼṑ𝑱𝑹𝑫𝑵𝑪🇰🇵👾ᓇᒧᔭᐃᐧᐦᑳᐨᓃᓂᑲᐸᑭᑎᓀᐣ🐄🎈🔨🐎🤞🐸💟🎰🌝🛳点击查版🍭𝑥𝑦𝑧ＮＧ👣\uf020っ🏉ф💭🎥Ξ🐴👨🤳🦍\x0b🍩𝑯𝒒😗𝟐🏂👳🍗🕉🐲چی𝑮𝗕𝗴🍒ꜥⲣⲏ🐑⏰鉄リ事件ї💊「」\uf203\uf09a\uf222\ue608\uf202\uf099\uf469\ue607\uf410\ue600燻製シ虚偽屁理屈Г𝑩𝑰𝒀𝑺🌤𝗳𝗜𝗙𝗦𝗧🍊ὺἈἡχῖΛ⤏🇳𝒙ψՁմեռայինրւդձ冬至ὀ𝒁🔹🤚🍎𝑷🐂💅𝘬𝘱𝘸𝘷𝘐𝘭𝘓𝘖𝘹𝘲𝘫کΒώ💢ΜΟΝΑΕ🇱♲𝝈↴💒⊘Ȼ🚴🖕🖤🥘📍👈➕🚫🎨🌑🐻𝐎𝐍𝐊𝑭🤖🎎😼🕷ｇｒｎｔｉｄｕｆｂｋ𝟰🇴🇭🇻🇲𝗞𝗭𝗘𝗤👼📉🍟🍦🌈🔭《🐊🐍\uf10aლڡ🐦\U0001f92f\U0001f92a🐡💳ἱ🙇𝗸𝗟𝗠𝗷🥜さようなら🔼'
-        small_caps_mapping = {"ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d", "ᴇ": "e", "ғ": "f", "ɢ": "g", "ʜ": "h", "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l", "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p", "ǫ": "q", "ʀ": "r", "s": "s", "ᴛ": "t", "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "x": "x", "ʏ": "y", "ᴢ": "z"}
-        contraction_mapping = {
-            "ain't": "is not", "aren't": "are not", "can't": "cannot", "'cause": "because", "could've": "could have",
-            "couldn't": "could not",
-            "didn't": "did not", "doesn't": "does not", "don't": "do not", "hadn't": "had not", "hasn't": "has not",
-            "haven't": "have not",
-            "he'd": "he would", "he'll": "he will", "he's": "he is", "how'd": "how did", "how'd'y": "how do you",
-            "how'll": "how will", "how's": "how is",
-            "I'd": "I would", "I'd've": "I would have", "I'll": "I will", "I'll've": "I will have", "I'm": "I am",
-            "I've": "I have", "i'd": "i would", "i'd've":
-                "i would have", "i'll": "i will", "i'll've": "i will have", "i'm": "i am", "i've": "i have",
-            "isn't": "is not", "it'd": "it would",
-            "it'd've": "it would have", "it'll": "it will", "it'll've": "it will have", "it's": "it is",
-            "let's": "let us", "ma'am": "madam",
-            "mayn't": "may not", "might've": "might have", "mightn't": "might not", "mightn't've": "might not have",
-            "must've": "must have",
-            "mustn't": "must not", "mustn't've": "must not have", "needn't": "need not", "needn't've": "need not have",
-            "o'clock": "of the clock", "oughtn't": "ought not", "oughtn't've": "ought not have", "shan't": "shall not",
-            "sha'n't": "shall not", "shan't've": "shall not have", "she'd": "she would", "she'd've": "she would have",
-            "she'll": "she will", "she'll've": "she will have", "she's": "she is", "should've": "should have",
-            "shouldn't": "should not",
-            "shouldn't've": "should not have", "so've": "so have", "so's": "so as", "this's": "this is",
-            "that'd": "that would",
-            "that'd've": "that would have", "that's": "that is", "there'd": "there would",
-            "there'd've": "there would have", "there's": "there is",
-            "here's": "here is", "they'd": "they would", "they'd've": "they would have", "they'll": "they will",
-            "they'll've": "they will have",
-            "they're": "they are", "they've": "they have", "to've": "to have", "wasn't": "was not", "we'd": "we would",
-            "we'd've": "we would have",
-            "we'll": "we will", "we'll've": "we will have", "we're": "we are", "we've": "we have",
-            "weren't": "were not", "what'll": "what will",
-            "what'll've": "what will have", "what're": "what are", "what's": "what is", "what've": "what have",
-            "when's": "when is",
-            "when've": "when have", "where'd": "where did", "where's": "where is", "where've": "where have",
-            "who'll": "who will", "who'll've": "who will have",
-            "who's": "who is", "who've": "who have", "why's": "why is", "why've": "why have", "will've": "will have",
-            "won't": "will not",
-            "won't've": "will not have", "would've": "would have", "wouldn't": "would not",
-            "wouldn't've": "would not have",
-            "y'all": "you all", "y'all'd": "you all would", "y'all'd've": "you all would have",
-            "y'all're": "you all are", "y'all've": "you all have",
-            "you'd": "you would", "you'd've": "you would have", "you'll": "you will", "you'll've": "you will have",
-            "you're": "you are", "you've": "you have",
-            "trump's": "trump is", "obama's": "obama is", "canada's": "canada is", "today's": "today is"}
-        # 字符的替换字典的 key 要转成 ascii 码才能用 translate
-        isolate_dict = {ord(c): f' {c} ' for c in symbols_to_isolate}
-        remove_dict = {ord(c): f'' for c in symbols_to_delete}
-        small_caps_mapping_dict = {ord(k): v for k, v in small_caps_mapping.items()}
-        mapping_dict = {}
-        mapping_dict.update(isolate_dict)
-        mapping_dict.update(remove_dict)
-        mapping_dict.update(small_caps_mapping_dict)
-        contraction_re = re.compile('(%s)' % '|'.join(contraction_mapping.keys()))
-        self.mapping_dict = mapping_dict
-        self.contraction_mapping = contraction_mapping
-        self.contraction_re = contraction_re
-
-    def clean_text(self, x):
-        # 将简写展开
-        x = self.contraction_re.sub(lambda match: self.contraction_mapping[match.group(0)], x)
-        # 隔离和删除特殊字符
-        x = x.translate(self.mapping_dict)
-        # 删除词语前的引号
-        x = x.split(" ")
-        x = [x_[1:] if x_.startswith("'") else x_ for x_ in x]
-        x = ' '.join(x)
-        return x
-
     def create_dataloader(self):
         # 读取输入输出
-        #train_comments = self.train_df["comment_text"].astype(str)
-        train_comments = self.train_df["comment_text"].astype(str).apply(lambda x: self.clean_text(x))
+        train_comments = self.train_df["comment_text"].astype(str)
         train_label = self.train_df["target"].values
         train_type_labels = self.train_df[self.toxicity_type_list].values
 
@@ -258,12 +197,8 @@ class Trainer:
         train_identity_binary_label = train_identity_or_binary
 
         # tokenizer 训练
-        # 清理数据
-        #test_comments = self.test_df["comment_text"].astype(str)
-        test_comments = self.test_df["comment_text"].astype(str).apply(lambda x: self.clean_text(x))
-        #tokenizer = text.Tokenizer(filters=self.stopwords)
-        # 如果 filter 不置为空，会自动删掉很多字符，lower 不置为 False 会自动全部小写
-        tokenizer = text.Tokenizer(filters='', lower=False)
+        test_comments = self.test_df["comment_text"].astype(str)
+        tokenizer = text.Tokenizer(filters=self.stopwords)
         tokenizer.fit_on_texts(list(train_comments) + list(test_comments))    # train_comments 是 dataframe 的一列，是 Series 类， list(train_comments) 直接变成 list
         # tokenization
         train_tokens = tokenizer.texts_to_sequences(train_comments)     # 可以给 Series 也可以给 list？
@@ -393,8 +328,11 @@ class Trainer:
         aux_true = y_batch[:, 1: 6]
         identity_pred = y_pred[:, 6:]
         identity_true = y_batch[:, 6:]
-        target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
-        target_loss = torch.mean(target_loss * target_weight)
+        if epoch > 7:
+            target_loss = f1_loss(target_pred, target_true)
+        else:
+            target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
+            target_loss = torch.mean(target_loss * target_weight)
         if epoch > 7:
             aux_loss = FocalLoss()(aux_pred, aux_true)
         else:
