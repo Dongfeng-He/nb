@@ -42,10 +42,12 @@ class NeuralNet(nn.Module):
         # 全连接层
         self.linear1 = nn.Linear(dense_size, dense_size)
         self.linear2 = nn.Linear(dense_size, dense_size)
+        self.linear3 = nn.Linear(dense_size * 2, dense_size)
         # 输出层
         self.linear_out = nn.Linear(dense_size, 1)
         self.linear_aux_out = nn.Linear(dense_size, 5)
         self.linear_identity_out = nn.Linear(dense_size, 9)
+        self.linear_identity_out2 = nn.Linear(dense_size, dense_size)
 
     def forward(self, x):
         # 嵌入层
@@ -59,6 +61,13 @@ class NeuralNet(nn.Module):
         max_pool, _ = torch.max(h_lstm2, 1)
         # 全连接层
         h_conc = torch.cat((max_pool, avg_pool), 1)
+
+        identity_hidden = self.linear_identity_out2(h_conc)
+        identity_result = self.linear_identity_out(identity_hidden)
+        h_conc2 = torch.cat((h_conc, identity_hidden), 1)
+        gate = F.sigmoid(self.linear3(h_conc2))
+        h_conc = h_conc * gate
+
         h_conc_linear1 = F.relu(self.linear1(h_conc))
         h_conc_linear2 = F.relu(self.linear2(h_conc))
         # 拼接
@@ -66,7 +75,6 @@ class NeuralNet(nn.Module):
         # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
         result = self.linear_out(hidden)
         aux_result = self.linear_aux_out(hidden)
-        identity_result = self.linear_identity_out(hidden)
         out = torch.cat([result, aux_result, identity_result], 1)
         return out
 
@@ -320,7 +328,7 @@ class Trainer:
                 #y_pred = model(*x_batch)
                 y_pred = model(x_batch)
                 target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, target_weight_batch, aux_weight_batch, identity_weight_batch)
-                loss = target_loss + aux_loss + identity_loss * 0.5
+                loss = target_loss + aux_loss + identity_loss
                 #loss = loss_fn(y_pred, y_batch)
                 optimizer.zero_grad()
                 loss.backward()
