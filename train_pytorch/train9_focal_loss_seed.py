@@ -336,7 +336,7 @@ class Trainer:
         # 生成 embedding
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         # 训练
-        self.seed_everything(1234)
+        self.seed_everything()
         model = NeuralNet(word_embedding)
         if torch.cuda.is_available():
             model.cuda()
