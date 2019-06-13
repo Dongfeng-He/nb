@@ -111,7 +111,7 @@ class NeuralNet(nn.Module):
 
 
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=5, batch_size=512, part=1., debug_mode=False):
+    def __init__(self, data_dir, model_name, epochs=5, batch_size=512, part=1., seed=1234, debug_mode=False):
         self.data_dir = data_dir
         self.debug_mode = debug_mode
         self.model_name = model_name
@@ -123,7 +123,7 @@ class Trainer:
                             "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
-        self.seed = 5
+        self.seed = seed
         self.max_len = 220
         self.epochs = epochs
         self.batch_size = batch_size
@@ -138,12 +138,12 @@ class Trainer:
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
 
-    def seed_everything(self, seed=1234):
-        random.seed(seed)
-        os.environ['PYTHONHASHSEED'] = str(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
+    def seed_everything(self):
+        random.seed(self.seed)
+        os.environ['PYTHONHASHSEED'] = str(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        torch.cuda.manual_seed(self.seed)
         torch.backends.cudnn.deterministic = True
 
     def init_evaluator(self):
@@ -312,7 +312,10 @@ class Trainer:
         aux_true = y_batch[:, 1: 6]
         identity_pred = y_pred[:, 6:]
         identity_true = y_batch[:, 6:]
-        target_loss = FocalLoss()(target_pred, target_true) * 0.33 + nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true) * 0.67
+        if epoch > 7:
+            target_loss = FocalLoss()(target_pred, target_true)
+        else:
+            target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
         if epoch > 7:
             aux_loss = FocalLoss()(aux_pred, aux_true)

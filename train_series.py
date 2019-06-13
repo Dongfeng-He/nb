@@ -125,79 +125,9 @@ if __name__ == "__main__":
     trainer = Trainer(data_dir=data_dir, model_name="train1_original_part", epochs=10, batch_size=512, part=0.3, debug_mode=debug_mode)
     trainer.train()
     """
-    from train_pytorch.train5_focal_loss import Trainer
-    print("start to train_pytorch: train5_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train5_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train6_clean_focal import Trainer
-    print("start to train_pytorch: train6_clean_focal")
-    trainer = Trainer(data_dir=data_dir, model_name="train6_clean_focal", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train7_focal_loss import Trainer
-    print("start to train_pytorch: train7_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train7_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train8_focal_loss import Trainer
-    print("start to train_pytorch: train8_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train8_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train6_clean_focal import Trainer
-    print("start to train_pytorch: train6_clean_focal")
-    trainer = Trainer(data_dir=data_dir, model_name="train6_clean_focal", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train9_focal_loss import Trainer
-    print("start to train_pytorch: train9_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train9_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train10_f1_loss import Trainer
-    print("start to train_pytorch: train10_f1_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train10_f1_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train11_f1_loss import Trainer
-    print("start to train_pytorch: train11_f1_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train11_f1_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train12_f1_loss import Trainer
-    print("start to train_pytorch: train12_f1_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train12_f1_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train13_f1_loss import Trainer
-    print("start to train_pytorch: train13_f1_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train13_f1_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
-
-    from train_pytorch.train14_focal_loss import Trainer
-    print("start to train_pytorch: train14_focal_loss")
-    trainer = Trainer(data_dir=data_dir, model_name="train14_focal_loss", epochs=20, batch_size=512, part=0.3, debug_mode=debug_mode)
+    from train_pytorch.train9_focal_loss_seed import Trainer
+    print("start to train_pytorch: train9_focal_loss_seed")
+    trainer = Trainer(data_dir=data_dir, model_name="train9_focal_loss_seed", epochs=30, batch_size=512, part=1., debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
