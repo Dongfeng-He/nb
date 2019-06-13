@@ -117,7 +117,6 @@ class Trainer:
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
-
         self.bert_config = BertConfig(os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/bert_config.json"))
         self.bert_model_path = os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/")
 
@@ -286,6 +285,13 @@ class Trainer:
         lr = 2e-5
         base_batch_size = 32
         accumulation_steps = math.ceil(self.batch_size / base_batch_size)
+        # 预训练 bert 转成 pytorch
+        if os.path.exists(self.bert_model_path + "pytorch_model.bin") is False:
+            convert_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(
+                self.bert_model_path + 'bert_model.ckpt',
+                self.bert_model_path + 'bert_config.json',
+                self.bert_model_path + 'pytorch_model.bin')
+        # 加载预训练模型
         model = BertNeuralNet.from_pretrained(self.bert_model_path, cache_dir=None)
         model.zero_grad()
         model = model.to(self.device)
