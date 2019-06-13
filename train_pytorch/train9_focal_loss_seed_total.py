@@ -118,9 +118,9 @@ class Trainer:
         self.seed = seed
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
-        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
-                            "threat": 608, "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
-                            "jewish": 242, "muslim": 132, "black": 130, "white": 89, "psychiatric_or_mental_illness": 368,
+        self.weight_dict = {"severe_toxicity": 1000, "obscene": 234, "identity_attack": 235, "insult": 21,
+                            "threat": 645, "male": 44, "female": 34, "homosexual_gay_or_lesbian": 175, "christian": 49,
+                            "jewish": 248, "muslim": 90, "black": 129, "white": 74, "psychiatric_or_mental_illness": 441,
                             "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
@@ -130,7 +130,7 @@ class Trainer:
         self.split_ratio = 0.95
         self.sample_num = 1804874
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(int(self.sample_num * part)).fillna(0.)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
             self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000).fillna(0.)
@@ -312,17 +312,17 @@ class Trainer:
         aux_true = y_batch[:, 1: 6]
         identity_pred = y_pred[:, 6:]
         identity_true = y_batch[:, 6:]
-        if epoch > 7:
+        if epoch > 9:
             target_loss = FocalLoss()(target_pred, target_true)
         else:
             target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if epoch > 7:
+        if epoch > 9:
             aux_loss = FocalLoss()(aux_pred, aux_true)
         else:
             aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        if epoch > 7:
+        if epoch > 9:
             identity_loss = FocalLoss()(identity_pred, identity_true)
         else:
             identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
@@ -353,7 +353,7 @@ class Trainer:
         for epoch in range(self.epochs):
             start_time = time.time()
             # 调整一次学习速率
-            if epoch <= 9:
+            if epoch <= 10:
                 scheduler.step()
             # 切换为训练模式
             model.train()
