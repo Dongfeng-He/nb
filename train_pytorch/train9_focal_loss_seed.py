@@ -115,6 +115,7 @@ class Trainer:
         self.data_dir = data_dir
         self.debug_mode = debug_mode
         self.model_name = model_name
+        self.seed = seed
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
         self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
@@ -123,7 +124,6 @@ class Trainer:
                             "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
-        self.seed = seed
         self.max_len = 220
         self.epochs = epochs
         self.batch_size = batch_size
