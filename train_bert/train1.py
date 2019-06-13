@@ -68,14 +68,14 @@ def convert_lines(example, max_seq_length,tokenizer):
 BERT_MODEL_PATH = '../input/bert-pretrained-models/uncased_l-12_h-768_a-12/uncased_L-12_H-768_A-12/'
 
 %%time
-tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_PATH, cache_dir=None,do_lower_case=True)
+bert_tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_PATH, cache_dir=None, do_lower_case=True)
 train_df = pd.read_csv(os.path.join(Data_dir,"train.csv")).sample(num_to_load+valid_size,random_state=SEED)
 print('loaded %d records' % len(train_df))
 
 # Make sure all comment_text values are strings
 train_df['comment_text'] = train_df['comment_text'].astype(str)
 
-sequences = convert_lines(train_df["comment_text"].fillna("DUMMY_VALUE"),MAX_SEQUENCE_LENGTH,tokenizer)
+sequences = convert_lines(train_df["comment_text"].fillna("DUMMY_VALUE"), MAX_SEQUENCE_LENGTH, bert_tokenizer)
 train_df=train_df.fillna(0)
 # List all identities
 identity_columns = [

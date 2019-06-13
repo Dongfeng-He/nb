@@ -13,6 +13,58 @@ import time
 import math
 import gc
 from torch.autograd import Variable
+from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
+from pytorch_pretrained_bert import BertTokenizer, BertForSequenceClassification, BertAdam, BertModel
+from pytorch_pretrained_bert import BertConfig
+from pytorch_pretrained_bert.modeling import BertPreTrainedModel
+from apex import amp
+
+
+class BertNeuralNet(BertPreTrainedModel):
+    def __init__(self, config):
+        super(BertNeuralNet, self).__init__(config)
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        dense_size = config.hidden_size
+        # 全连接层
+        self.linear1 = nn.Linear(config.hidden_size, dense_size)
+        self.linear2 = nn.Linear(config.hidden_size, dense_size)
+        self.linear_gate = nn.Linear(config.hidden_size + dense_size, config.hidden_size)
+        # 输出层
+        self.linear_out = nn.Linear(dense_size, 1)
+        self.linear_aux_out = nn.Linear(dense_size, 5)
+        self.linear_identity_out = nn.Linear(dense_size, 9)
+        self.linear_identity_hidden = nn.Linear(config.hidden_size, dense_size)
+        self.bn1 = nn.BatchNorm1d(dense_size)
+        self.bn2 = nn.BatchNorm1d(dense_size)
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        bert_output = self.dropout(pooled_output)
+
+        # 全连接层
+        identity_hidden = self.linear_identity_hidden(bert_output)
+        identity_hidden = F.relu(identity_hidden)
+        #identity_hidden = self.bn1(identity_hidden)
+        identity_hidden = F.dropout(identity_hidden, p=0.3)
+        identity_result = self.linear_identity_out(identity_hidden)
+        identity_hidden_conc = torch.cat((bert_output, identity_hidden), 1)
+        gate_hidden = self.linear_gate(identity_hidden_conc)
+        #gate_hidden = self.bn2(gate_hidden)
+        gate = torch.sigmoid(gate_hidden)
+        #gate = F.dropout(gate, p=0.3)
+        bert_output_gate = bert_output * gate
+
+        h_conc_linear1 = F.relu(self.linear1(bert_output_gate))
+        h_conc_linear2 = F.relu(self.linear2(bert_output_gate))
+        # 拼接
+        hidden = bert_output_gate + h_conc_linear1 + h_conc_linear2
+        # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
+        result = self.linear_out(hidden)
+        aux_result = self.linear_aux_out(hidden)
+        out = torch.cat([result, aux_result, identity_result], 1)
+        return out
 
 
 class FocalLoss(nn.Module):
@@ -37,81 +89,8 @@ class FocalLoss(nn.Module):
             return focal_loss
 
 
-class SpatialDropout(nn.Dropout2d):
-    def forward(self, x):
-        x = x.unsqueeze(2)  # (N, T, 1, K)
-        x = x.permute(0, 3, 2, 1)  # (N, K, 1, T)
-        x = super(SpatialDropout, self).forward(x)  # (N, K, 1, T), some features are masked
-        x = x.permute(0, 3, 2, 1)  # (N, T, 1, K)
-        x = x.squeeze(2)  # (N, T, K)
-        return x
-
-
-class NeuralNet(nn.Module):
-    def __init__(self, embedding_matrix):
-        super(NeuralNet, self).__init__()
-        unique_word_num = embedding_matrix.shape[0]
-        embed_size = embedding_matrix.shape[1]
-        lstm_size = 128
-        dense_size = 512
-        # 嵌入层
-        self.embedding = nn.Embedding(unique_word_num, embed_size)
-        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32))
-        self.embedding.weight.requires_grad = False
-        self.embedding_dropout = SpatialDropout(0.3)
-        # LSTM
-        self.lstm1 = nn.LSTM(embed_size, lstm_size, bidirectional=True, batch_first=True)
-        self.lstm2 = nn.LSTM(lstm_size * 2, lstm_size, bidirectional=True, batch_first=True)
-        # 全连接层
-        self.linear1 = nn.Linear(dense_size, dense_size)
-        self.linear2 = nn.Linear(dense_size, dense_size)
-        self.linear3 = nn.Linear(dense_size * 2, dense_size)
-        # 输出层
-        self.linear_out = nn.Linear(dense_size, 1)
-        self.linear_aux_out = nn.Linear(dense_size, 5)
-        self.linear_identity_out = nn.Linear(dense_size, 9)
-        self.linear_identity_out2 = nn.Linear(dense_size, dense_size)
-        self.bn1 = nn.BatchNorm1d(dense_size)
-        self.bn2 = nn.BatchNorm1d(dense_size)
-
-    def forward(self, x):
-        # 嵌入层
-        h_embedding = self.embedding(x)
-        h_embedding = self.embedding_dropout(h_embedding)
-        # LSTM
-        h_lstm1, _ = self.lstm1(h_embedding)
-        h_lstm2, _ = self.lstm2(h_lstm1)
-        # pooling
-        avg_pool = torch.mean(h_lstm2, 1)
-        max_pool, _ = torch.max(h_lstm2, 1)
-        # 全连接层
-        h_conc = torch.cat((max_pool, avg_pool), 1)
-
-        identity_hidden = self.linear_identity_out2(h_conc)
-        identity_hidden = F.relu(identity_hidden)
-        #identity_hidden = self.bn1(identity_hidden)
-        identity_hidden = F.dropout(identity_hidden, p=0.3)
-        identity_result = self.linear_identity_out(identity_hidden)
-        h_conc2 = torch.cat((h_conc, identity_hidden), 1)
-        gate_hidden = self.linear3(h_conc2)
-        #gate_hidden = self.bn2(gate_hidden)
-        gate = torch.sigmoid(gate_hidden)
-        #gate = F.dropout(gate, p=0.3)
-        h_conc = h_conc * gate
-
-        h_conc_linear1 = F.relu(self.linear1(h_conc))
-        h_conc_linear2 = F.relu(self.linear2(h_conc))
-        # 拼接
-        hidden = h_conc + h_conc_linear1 + h_conc_linear2
-        # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
-        result = self.linear_out(hidden)
-        aux_result = self.linear_aux_out(hidden)
-        out = torch.cat([result, aux_result, identity_result], 1)
-        return out
-
-
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=5, batch_size=512, part=1., seed=1234, debug_mode=False):
+    def __init__(self, data_dir, model_name, epochs=4, batch_size=64, part=1., seed=1234, debug_mode=False):
         self.device = torch.device('cuda')
         self.data_dir = data_dir
         self.debug_mode = debug_mode
@@ -119,9 +98,9 @@ class Trainer:
         self.seed = seed
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
-        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
-                            "threat": 608, "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
-                            "jewish": 242, "muslim": 132, "black": 130, "white": 89, "psychiatric_or_mental_illness": 368,
+        self.weight_dict = {"severe_toxicity": 1000, "obscene": 234, "identity_attack": 235, "insult": 21,
+                            "threat": 645, "male": 44, "female": 34, "homosexual_gay_or_lesbian": 175, "christian": 49,
+                            "jewish": 248, "muslim": 90, "black": 129, "white": 74, "psychiatric_or_mental_illness": 441,
                             "np": 12, "pn": 15}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
@@ -139,6 +118,9 @@ class Trainer:
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
 
+        self.bert_config = BertConfig(os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/bert_config.json"))
+        self.bert_model_path = os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/")
+
     def seed_everything(self):
         random.seed(self.seed)
         os.environ['PYTHONHASHSEED'] = str(self.seed)
@@ -155,6 +137,17 @@ class Trainer:
         valid_y_identity = y_identity[self.train_len:]
         evaluator = JigsawEvaluator(valid_y_true, valid_y_identity) # y_true 必须是0或1，不能是离散值
         return evaluator
+
+    def convert_lines(self, text_series, max_seq_length, bert_tokenizer):
+        max_seq_length -= 2
+        all_tokens = []
+        for text in text_series:
+            tokens = bert_tokenizer.tokenize(text)
+            if len(tokens) > max_seq_length:
+                tokens = tokens[:max_seq_length]
+            one_token = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + tokens + ["[SEP]"]) + [0] * (max_seq_length - len(tokens))
+            all_tokens.append(one_token)
+        return np.array(all_tokens)
 
     def create_dataloader(self):
         # 读取输入输出
@@ -182,20 +175,13 @@ class Trainer:
         train_identity_binary_label = train_identity_or_binary
 
         # tokenizer 训练
-        test_comments = self.test_df["comment_text"].astype(str)
-        tokenizer = text.Tokenizer(filters=self.stopwords)
-        tokenizer.fit_on_texts(list(train_comments) + list(test_comments))    # train_comments 是 dataframe 的一列，是 Series 类， list(train_comments) 直接变成 list
-        # tokenization
-        train_tokens = tokenizer.texts_to_sequences(train_comments)     # 可以给 Series 也可以给 list？
-        test_tokens = tokenizer.texts_to_sequences(test_comments)
-        # 用 sequence 类补到定长
-        train_tokens = sequence.pad_sequences(train_tokens, maxlen=self.max_len)
-        test_tokens = sequence.pad_sequences(test_tokens, maxlen=self.max_len)
+        bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
+        train_bert_tokens = self.convert_lines(self.train_df["comment_text"].fillna("DUMMY_VALUE"), self.max_len, bert_tokenizer)
         # 划分训练集和验证集
-        valid_tokens = train_tokens[self.train_len:]
+        valid_tokens = train_bert_tokens[self.train_len:]
         valid_label = train_label[self.train_len:]
         valid_type_labels = train_type_labels[self.train_len:]
-        train_tokens = train_tokens[:self.train_len]
+        train_tokens = train_bert_tokens[:self.train_len]
         train_label = train_label[:self.train_len]
         train_type_labels = train_type_labels[:self.train_len]
         valid_identity_type_labels = train_identity_type_labels[self.train_len:]
@@ -233,7 +219,7 @@ class Trainer:
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
         valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.batch_size, shuffle=False)
         # 返回训练数据
-        return train_loader, valid_loader, tokenizer
+        return train_loader, valid_loader
 
     def cal_sample_weights(self):
         # aux weight
@@ -263,45 +249,6 @@ class Trainer:
         aux_weight = aux_weight[:self.train_len, :]
         identity_weight = identity_weight[:self.train_len, :]
         return target_weight, aux_weight, identity_weight
-
-    def create_emb_weights(self, word_index):
-        # 构建词向量字典
-        with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
-            fasttext_emb_dict = {}
-            for i, line in enumerate(f):
-                if i == 1000 and self.debug_mode: break
-                split = line.strip().split(" ")
-                word = split[0]
-                if word not in word_index: continue
-                emb = np.array([float(num) for num in split[1:]])
-                fasttext_emb_dict[word] = emb
-        with open(os.path.join(self.data_dir, "glove.840B.300d.txt"), "r") as f:
-            glove_emb_dict = {}
-            for i, line in enumerate(f):
-                if i == 1000 and self.debug_mode: break
-                split = line.strip().split(" ")
-                word = split[0]
-                if word not in word_index: continue
-                emb = np.array([float(num) for num in split[1:]])
-                glove_emb_dict[word] = emb
-        # 为训练集和测试集出现过的词构建词向量矩阵
-        word_embedding = np.zeros((len(word_index) + 1, 600))     # tokenizer 自动留出0用来 padding
-        np.random.seed(1234)
-        fasttext_random_emb = np.random.uniform(-0.25, 0.25, 300)   # 用于 fasttext 找不到词语时
-        np.random.seed(1235)
-        glove_random_emb = np.random.uniform(-0.25, 0.25, 300)  # 用于 glove 找不到词语时
-        for word, index in word_index.items():
-            # 如果找不到 emb，尝试小写或首字母大写
-            if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                word = word.lower()
-                if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                    word = word.title()
-                    if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                        word = word.upper()
-            fasttext_emb = fasttext_emb_dict[word] if word in fasttext_emb_dict else fasttext_random_emb
-            glove_emb = glove_emb_dict[word] if word in glove_emb_dict else glove_random_emb
-            word_embedding[index] = np.concatenate((fasttext_emb, glove_emb), axis=-1)
-        return np.array(word_embedding)
 
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
@@ -333,66 +280,62 @@ class Trainer:
     def train(self):
         if self.debug_mode: self.epochs = 1
         # 加载 dataloader
-        train_loader, valid_loader, tokenizer = self.create_dataloader()
-        # 生成 embedding
-        word_embedding = self.create_emb_weights(tokenizer.word_index)
+        train_loader, valid_loader = self.create_dataloader()
         # 训练
         self.seed_everything()
-        model = NeuralNet(word_embedding)
-        if torch.cuda.is_available():
-            model.cuda()
-        lr = 1e-3
-        # param_lrs = [{'params': param, 'lr': lr} for param in model.parameters()] # 可以为不同层设置不同的学习速率
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        lr = 2e-5
+        base_batch_size = 32
+        accumulation_steps = math.ceil(self.batch_size / base_batch_size)
+        model = BertNeuralNet.from_pretrained(self.bert_model_path, cache_dir=None)
+        model.zero_grad()
+        model = model.to(self.device)
+        # 不同的参数组设置不同的 weight_decay
+        param_optimizer = list(model.named_parameters())
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+        num_train_optimization_steps = int(self.epochs * self.train_len / base_batch_size / accumulation_steps)
+        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
         # 渐变学习速率
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
-        # 损失函数
-        loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
-        # 训练
-        previous_auc_score = 0
-        stop_flag = 0
+        #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
+        # 开始训练
         for epoch in range(self.epochs):
             start_time = time.time()
-            # 调整一次学习速率
-            if epoch <= 9:
-                scheduler.step()
-            # 切换为训练模式
             model.train()
-            # 初始化当前 epoch 的 loss
-            avg_loss = 0.
+            optimizer.zero_grad()
             # 加载每个 batch 并训练
-            for batch_data in train_loader:
+            for i, batch_data in enumerate(train_loader):
                 x_batch = batch_data[0]
                 y_batch = batch_data[1]
                 target_weight_batch = batch_data[2]
                 aux_weight_batch = batch_data[3]
                 identity_weight_batch = batch_data[4]
-                #y_pred = model(*x_batch)
-                y_pred = model(x_batch)
+                y_pred = model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None)
                 target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss + aux_loss + identity_loss
-                #loss = loss_fn(y_pred, y_batch)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                avg_loss += loss.item() / len(train_loader)
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+                if (i + 1) % accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
             # 计算验证集
             model.eval()
             y_pred = np.zeros((len(self.train_df) - self.train_len))
             for i, batch_data in enumerate(valid_loader):
-                x_batch = batch_data[:-1]
-                y_batch = batch_data[-1]
-                batch_y_pred = self.sigmoid(model(*x_batch).detach().cpu().numpy())[:, 0]
+                x_batch = batch_data[0]
+                batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
                 y_pred[i * self.batch_size: (i + 1) * self.batch_size] = batch_y_pred
             # 计算得分
             auc_score = self.evaluator.get_final_metric(y_pred)
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
-            if not self.debug_mode and epoch > 0:
-                temp_dict = model.state_dict()
-                del temp_dict['embedding.weight']
-                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
+            if not self.debug_mode:
+                state_dict = model.state_dict()
+                torch.save(state_dict, os.path.join(self.data_dir, "model/model[bert][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型
-        training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler]
+        training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
         for variable in training_history:
             del variable
         gc.collect()
