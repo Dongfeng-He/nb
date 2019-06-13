@@ -127,7 +127,7 @@ if __name__ == "__main__":
     """
     from train_pytorch.train9_focal_loss_seed import Trainer
     print("start to train_pytorch: train9_focal_loss_seed")
-    trainer = Trainer(data_dir=data_dir, model_name="train9_focal_loss_seed", epochs=30, batch_size=512, part=1., debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train9_focal_loss_seed", epochs=30, batch_size=512, part=1., seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()

@@ -389,7 +389,7 @@ class Trainer:
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()
                 del temp_dict['embedding.weight']
-                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
+                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler]
         for variable in training_history:
