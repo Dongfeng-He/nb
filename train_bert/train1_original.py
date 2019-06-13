@@ -106,6 +106,7 @@ class Trainer:
         self.seed_everything()
         self.max_len = 220
         self.epochs = epochs
+        self.base_batch_size = 32
         self.batch_size = batch_size
         self.split_ratio = 0.95
         self.sample_num = 1804874
@@ -215,8 +216,8 @@ class Trainer:
         train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor)
         valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor)
         # 将 dataset 转成 dataloader
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.batch_size, shuffle=False)
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True)
+        valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
         # 返回训练数据
         return train_loader, valid_loader
 
@@ -283,8 +284,7 @@ class Trainer:
         # 训练
         self.seed_everything()
         lr = 2e-5
-        base_batch_size = 32
-        accumulation_steps = math.ceil(self.batch_size / base_batch_size)
+        accumulation_steps = math.ceil(self.batch_size / self.base_batch_size)
         # 预训练 bert 转成 pytorch
         if os.path.exists(self.bert_model_path + "pytorch_model.bin") is False:
             convert_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(
@@ -302,7 +302,7 @@ class Trainer:
             {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
-        num_train_optimization_steps = int(self.epochs * self.train_len / base_batch_size / accumulation_steps)
+        num_train_optimization_steps = int(self.epochs * self.train_len / self.base_batch_size / accumulation_steps)
         optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
@@ -333,7 +333,7 @@ class Trainer:
             for i, batch_data in enumerate(valid_loader):
                 x_batch = batch_data[0]
                 batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
-                y_pred[i * self.batch_size: (i + 1) * self.batch_size] = batch_y_pred
+                y_pred[i * self.base_batch_size: (i + 1) * self.base_batch_size] = batch_y_pred
             # 计算得分
             auc_score = self.evaluator.get_final_metric(y_pred)
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
