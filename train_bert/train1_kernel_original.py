@@ -1,3 +1,6 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import os
 import pandas as pd
 from evaluation import *
@@ -12,12 +15,21 @@ import numpy as np
 import time
 import math
 import gc
+import sys
 from torch.autograd import Variable
+sys.path.insert(0, "../input/ppbert/pytorch-pretrained-bert/pytorch-pretrained-BERT")
 from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
-from pytorch_pretrained_bert import BertTokenizer, BertForSequenceClassification, BertAdam, BertModel
+from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 from apex import amp
+import shutil
+
+
+DATA_DIR="../input/jigsaw-unintended-bias-in-toxicity-classification"
+INPUT_DIR = "../input"
+WORK_DIR = "../working/"
+BERT_MODEL_PATH = '../input/bert-pretrained-models/uncased_l-12_h-768_a-12/uncased_L-12_H-768_A-12/'
 
 
 class BertNeuralNet(BertPreTrainedModel):
@@ -92,7 +104,10 @@ class FocalLoss(nn.Module):
 class Trainer:
     def __init__(self, data_dir, model_name, epochs=4, batch_size=64, part=1., seed=1234, debug_mode=False):
         self.device = torch.device('cuda')
-        self.data_dir = data_dir
+        self.data_dir = "../input/jigsaw-unintended-bias-in-toxicity-classification"
+        self.bert_model_path = '../input/bert-pretrained-models/uncased_l-12_h-768_a-12/uncased_L-12_H-768_A-12/'
+        self.input_dir = "../input"
+        self.word_dir = "../working/"
         self.debug_mode = debug_mode
         self.model_name = model_name
         self.seed = seed
@@ -119,7 +134,11 @@ class Trainer:
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
         self.bert_config = BertConfig(os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/bert_config.json"))
-        self.bert_model_path = os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/")
+        convert_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(
+            self.bert_model_path + 'bert_model.ckpt',
+            self.bert_model_path + 'bert_config.json',
+            self.word_dir + 'pytorch_model.bin')
+        shutil.copyfile(self.bert_model_path + 'bert_config.json', self.word_dir + 'bert_config.json')
 
     def seed_everything(self):
         random.seed(self.seed)
@@ -302,9 +321,7 @@ class Trainer:
             {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
-        epoch_steps = int(self.train_len / self.base_batch_size / accumulation_steps)
-        num_train_optimization_steps = int(self.epochs * epoch_steps)
-        valid_every = math.floor(epoch_steps / 10)
+        num_train_optimization_steps = int(self.epochs * self.train_len / self.base_batch_size / accumulation_steps)
         optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
@@ -329,21 +346,19 @@ class Trainer:
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
                     optimizer.zero_grad()
-                # 验证
-                if (i + 1) % valid_every == 0:
-                    model.eval()
-                    y_pred = np.zeros((len(self.train_df) - self.train_len))
-                    for j, valid_batch_data in enumerate(valid_loader):
-                        x_batch = valid_batch_data[0]
-                        batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
-                        y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
-                    # 计算得分
-                    auc_score = self.evaluator.get_final_metric(y_pred)
-                    print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
-                    if not self.debug_mode:
-                        state_dict = model.state_dict()
-                        torch.save(state_dict, os.path.join(self.data_dir, "model/model[bert][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
-                    model.train()
+            # 计算验证集
+            model.eval()
+            y_pred = np.zeros((len(self.train_df) - self.train_len))
+            for i, batch_data in enumerate(valid_loader):
+                x_batch = batch_data[0]
+                batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
+                y_pred[i * self.base_batch_size: (i + 1) * self.base_batch_size] = batch_y_pred
+            # 计算得分
+            auc_score = self.evaluator.get_final_metric(y_pred)
+            print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
+            if not self.debug_mode:
+                state_dict = model.state_dict()
+                torch.save(state_dict, os.path.join(self.data_dir, "model/model[bert][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
         for variable in training_history:
@@ -352,6 +367,6 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
+    data_dir = "../input/jigsaw-unintended-bias-in-toxicity-classification"
     trainer = Trainer(data_dir, "model_name", debug_mode=True)
     trainer.train()

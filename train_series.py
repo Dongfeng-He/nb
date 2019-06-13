@@ -134,7 +134,7 @@ if __name__ == "__main__":
     """
     from train_bert.train1_original import Trainer
     print("start to train_bert: train1_original")
-    trainer = Trainer(data_dir=data_dir, model_name="train1_original", epochs=2, batch_size=128, part=0.1, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train1_original", epochs=3, batch_size=64, part=1., seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
