@@ -202,7 +202,8 @@ class Trainer:
         target_weight_tensor = torch.tensor(target_weight, dtype=torch.float32)
         aux_weight_tensor = torch.tensor(aux_weight, dtype=torch.float32)
         identity_weight_tensor = torch.tensor(identity_weight, dtype=torch.float32)
-        if torch.cuda.is_available():
+        #if torch.cuda.is_available():
+        if False:
             train_x_tensor = train_x_tensor.cuda()
             valid_x_tensor = valid_x_tensor.cuda()
             train_y_tensor = train_y_tensor.cuda()
