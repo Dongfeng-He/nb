@@ -170,18 +170,21 @@ class Trainer:
         target_weight_tensor = torch.tensor(target_weight, dtype=torch.float32)
         aux_weight_tensor = torch.tensor(aux_weight, dtype=torch.float32)
         identity_weight_tensor = torch.tensor(identity_weight, dtype=torch.float32)
-        #if torch.cuda.is_available():
-        if False:
-            train_x_tensor = train_x_tensor.cuda()
-            valid_x_tensor = valid_x_tensor.cuda()
-            train_y_tensor = train_y_tensor.cuda()
-            valid_y_tensor = valid_y_tensor.cuda()
-            target_weight_tensor = target_weight_tensor.cuda()
-            aux_weight_tensor = aux_weight_tensor.cuda()
-            identity_weight_tensor = identity_weight_tensor.cuda()
+        train_attention_mask_tensor = train_x_tensor > 0
+        valid_attention_mask_tensor = valid_x_tensor > 0
+        if torch.cuda.is_available():
+            train_x_tensor = train_x_tensor.to(self.device)
+            valid_x_tensor = valid_x_tensor.to(self.device)
+            train_y_tensor = train_y_tensor.to(self.device)
+            valid_y_tensor = valid_y_tensor.to(self.device)
+            target_weight_tensor = target_weight_tensor.to(self.device)
+            aux_weight_tensor = aux_weight_tensor.to(self.device)
+            identity_weight_tensor = identity_weight_tensor.to(self.device)
+            train_attention_mask_tensor = train_attention_mask_tensor.to(self.device)
+            valid_attention_mask_tensor = valid_attention_mask_tensor.to(self.device)
         # 将 tensor 转成 dataset，训练数据和标签一一对应，用 dataloader 加载的时候 dataset[:-1] 是 x，dataset[-1] 是 y
-        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor)
-        valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor)
+        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor, train_attention_mask_tensor)
+        valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor, valid_attention_mask_tensor)
         # 将 dataset 转成 dataloader
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True)
         valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
@@ -274,7 +277,8 @@ class Trainer:
                 target_weight_batch = batch_data[2]
                 aux_weight_batch = batch_data[3]
                 identity_weight_batch = batch_data[4]
-                y_pred = model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None)
+                x_mask = batch_data[5]
+                y_pred = model(x_batch, attention_mask=x_mask, labels=None)
                 target_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -288,7 +292,8 @@ class Trainer:
                     y_pred = np.zeros((len(self.train_df) - self.train_len))
                     for j, valid_batch_data in enumerate(valid_loader):
                         x_batch = valid_batch_data[0]
-                        batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
+                        x_mask = valid_batch_data[2]
+                        batch_y_pred = self.sigmoid(model(x_batch, attention_mask=x_mask, labels=None).detach().cpu().numpy())[:, 0]
                         y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
                     # 计算得分
                     auc_score = self.evaluator.get_final_metric(y_pred)
