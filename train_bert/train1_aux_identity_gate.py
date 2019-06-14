@@ -3,7 +3,6 @@ import pandas as pd
 from evaluation import *
 import random
 import copy
-from keras.preprocessing import text, sequence
 import torch
 from torch import nn
 from torch.utils import data
@@ -12,9 +11,8 @@ import numpy as np
 import time
 import math
 import gc
-from torch.autograd import Variable
 from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
-from pytorch_pretrained_bert import BertTokenizer, BertForSequenceClassification, BertAdam, BertModel
+from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 from apex import amp
@@ -90,7 +88,7 @@ class FocalLoss(nn.Module):
 
 
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=4, batch_size=64, part=1., seed=1234, debug_mode=False):
+    def __init__(self, data_dir, model_name, epochs=4, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=False):
         self.device = torch.device('cuda')
         self.data_dir = data_dir
         self.debug_mode = debug_mode
@@ -106,7 +104,7 @@ class Trainer:
         self.seed_everything()
         self.max_len = 220
         self.epochs = epochs
-        self.base_batch_size = 32
+        self.base_batch_size = base_batch_size
         self.batch_size = batch_size
         self.split_ratio = 0.95
         self.sample_num = 1804874
@@ -342,7 +340,14 @@ class Trainer:
                     print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
                     if not self.debug_mode:
                         state_dict = model.state_dict()
-                        torch.save(state_dict, os.path.join(self.data_dir, "model/model[bert][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
+                        # model[bert][seed][epoch][stage][model_name][score].bin
+                        stage = int((i + 1) / valid_every) + 1
+                        duration = int((time.time() - start_time) / 60)
+                        if epoch == 0 and stage == 1:
+                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, duration, auc_score)
+                        else:
+                            model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
+                        torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.train()
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
