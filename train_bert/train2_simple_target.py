@@ -267,7 +267,7 @@ class Trainer:
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
         # 开始训练
         for epoch in range(self.epochs):
-            start_time = time.time()
+            train_start_time = time.time()
             model.train()
             optimizer.zero_grad()
             # 加载每个 batch 并训练
@@ -288,6 +288,7 @@ class Trainer:
                     optimizer.zero_grad()
                 # 验证
                 if (i + 1) % valid_every == 0:
+                    valid_start_time = time.time()
                     model.eval()
                     y_pred = np.zeros((len(self.train_df) - self.train_len))
                     for j, valid_batch_data in enumerate(valid_loader):
@@ -297,15 +298,17 @@ class Trainer:
                         y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
                     # 计算得分
                     auc_score = self.evaluator.get_final_metric(y_pred)
-                    print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
+                    print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - train_start_time) / 60), auc_score))
                     if not self.debug_mode:
                         state_dict = model.state_dict()
-                        # model[bert][seed][epoch][stage][model_name][score].bin
-                        stage = int((i + 1) / valid_every) + 1
-                        duration = int((time.time() - start_time) / 60)
+                        stage = int((i + 1) / valid_every)
+                        train_duration = int((time.time() - train_start_time) / 60)
+                        valid_duration = int((time.time() - valid_start_time) / 60)
                         if epoch == 0 and stage == 1:
-                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, duration, auc_score)
+                            # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
+                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
                         else:
+                            # model[bert][seed][epoch][stage][model_name][score].bin
                             model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.train()
