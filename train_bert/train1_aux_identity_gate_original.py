@@ -23,17 +23,44 @@ class BertNeuralNet(BertPreTrainedModel):
         super(BertNeuralNet, self).__init__(config)
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.linear_out = nn.Linear(config.hidden_size, 1)
-        self.linear_aux_out = nn.Linear(config.hidden_size, 5)
-        self.linear_identity_out = nn.Linear(config.hidden_size, 9)
+        dense_size = config.hidden_size
+        # 全连接层
+        self.linear1 = nn.Linear(config.hidden_size, dense_size)
+        self.linear2 = nn.Linear(config.hidden_size, dense_size)
+        self.linear_gate = nn.Linear(config.hidden_size + dense_size, config.hidden_size)
+        # 输出层
+        self.linear_out = nn.Linear(dense_size, 1)
+        self.linear_aux_out = nn.Linear(dense_size, 5)
+        self.linear_identity_out = nn.Linear(dense_size, 9)
+        self.linear_identity_hidden = nn.Linear(config.hidden_size, dense_size)
+        self.bn1 = nn.BatchNorm1d(dense_size)
+        self.bn2 = nn.BatchNorm1d(dense_size)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         bert_output = self.dropout(pooled_output)
-        result = self.linear_out(bert_output)
-        aux_result = self.linear_aux_out(bert_output)
-        identity_result = self.linear_identity_out(bert_output)
+
+        # 全连接层
+        identity_hidden = self.linear_identity_hidden(bert_output)
+        identity_hidden = F.relu(identity_hidden)
+        #identity_hidden = self.bn1(identity_hidden)
+        identity_hidden = F.dropout(identity_hidden, p=0.3)
+        identity_result = self.linear_identity_out(identity_hidden)
+        identity_hidden_conc = torch.cat((bert_output, identity_hidden), 1)
+        gate_hidden = self.linear_gate(identity_hidden_conc)
+        #gate_hidden = self.bn2(gate_hidden)
+        gate = torch.sigmoid(gate_hidden)
+        #gate = F.dropout(gate, p=0.3)
+        bert_output_gate = bert_output * gate
+
+        h_conc_linear1 = F.relu(self.linear1(bert_output_gate))
+        h_conc_linear2 = F.relu(self.linear2(bert_output_gate))
+        # 拼接
+        hidden = bert_output_gate + h_conc_linear1 + h_conc_linear2
+        # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
+        result = self.linear_out(hidden)
+        aux_result = self.linear_aux_out(hidden)
         out = torch.cat([result, aux_result, identity_result], 1)
         return out
 
@@ -175,21 +202,18 @@ class Trainer:
         target_weight_tensor = torch.tensor(target_weight, dtype=torch.float32)
         aux_weight_tensor = torch.tensor(aux_weight, dtype=torch.float32)
         identity_weight_tensor = torch.tensor(identity_weight, dtype=torch.float32)
-        train_attention_mask_tensor = train_x_tensor > 0
-        valid_attention_mask_tensor = valid_x_tensor > 0
-        if torch.cuda.is_available():
-            train_x_tensor = train_x_tensor.to(self.device)
-            valid_x_tensor = valid_x_tensor.to(self.device)
-            train_y_tensor = train_y_tensor.to(self.device)
-            valid_y_tensor = valid_y_tensor.to(self.device)
-            target_weight_tensor = target_weight_tensor.to(self.device)
-            aux_weight_tensor = aux_weight_tensor.to(self.device)
-            identity_weight_tensor = identity_weight_tensor.to(self.device)
-            train_attention_mask_tensor = train_attention_mask_tensor.to(self.device)
-            valid_attention_mask_tensor = valid_attention_mask_tensor.to(self.device)
+        #if torch.cuda.is_available():
+        if False:
+            train_x_tensor = train_x_tensor.cuda()
+            valid_x_tensor = valid_x_tensor.cuda()
+            train_y_tensor = train_y_tensor.cuda()
+            valid_y_tensor = valid_y_tensor.cuda()
+            target_weight_tensor = target_weight_tensor.cuda()
+            aux_weight_tensor = aux_weight_tensor.cuda()
+            identity_weight_tensor = identity_weight_tensor.cuda()
         # 将 tensor 转成 dataset，训练数据和标签一一对应，用 dataloader 加载的时候 dataset[:-1] 是 x，dataset[-1] 是 y
-        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor, train_attention_mask_tensor)
-        valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor, valid_attention_mask_tensor)
+        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor)
+        valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor)
         # 将 dataset 转成 dataloader
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True)
         valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
@@ -286,7 +310,7 @@ class Trainer:
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
         # 开始训练
         for epoch in range(self.epochs):
-            train_start_time = time.time()
+            start_time = time.time()
             model.train()
             optimizer.zero_grad()
             # 加载每个 batch 并训练
@@ -296,8 +320,7 @@ class Trainer:
                 target_weight_batch = batch_data[2]
                 aux_weight_batch = batch_data[3]
                 identity_weight_batch = batch_data[4]
-                x_mask = batch_data[5]
-                y_pred = model(x_batch, attention_mask=x_mask, labels=None)
+                y_pred = model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None)
                 target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss + aux_loss + identity_loss
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -307,27 +330,23 @@ class Trainer:
                     optimizer.zero_grad()
                 # 验证
                 if (i + 1) % valid_every == 0:
-                    valid_start_time = time.time()
                     model.eval()
                     y_pred = np.zeros((len(self.train_df) - self.train_len))
                     for j, valid_batch_data in enumerate(valid_loader):
                         x_batch = valid_batch_data[0]
-                        x_mask = valid_batch_data[2]
-                        batch_y_pred = self.sigmoid(model(x_batch, attention_mask=x_mask, labels=None).detach().cpu().numpy())[:, 0]
+                        batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
                         y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
                     # 计算得分
                     auc_score = self.evaluator.get_final_metric(y_pred)
-                    print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - train_start_time) / 60), auc_score))
+                    print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
                     if not self.debug_mode:
                         state_dict = model.state_dict()
-                        stage = int((i + 1) / valid_every)
-                        train_duration = int((time.time() - train_start_time) / 60)
-                        valid_duration = int((time.time() - valid_start_time) / 60)
+                        # model[bert][seed][epoch][stage][model_name][score].bin
+                        stage = int((i + 1) / valid_every) + 1
+                        duration = int((time.time() - start_time) / 60)
                         if epoch == 0 and stage == 1:
-                            # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
+                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, duration, auc_score)
                         else:
-                            # model[bert][seed][epoch][stage][model_name][score].bin
                             model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.train()
