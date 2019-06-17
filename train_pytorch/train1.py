@@ -58,7 +58,7 @@ def train_model(model, train, test, loss_fn, output_dim, lr=0.001, batch_size=51
 
         scheduler.step()
 
-        model.train()
+        model.predict()
         avg_loss = 0.
 
         for data in tqdm(train_loader, disable=False):
@@ -148,7 +148,7 @@ class NeuralNet(nn.Module):
 
         return out
 
-train = pd.read_csv('../input/jigsaw-unintended-bias-in-toxicity-classification/train.csv')
+train = pd.read_csv('../input/jigsaw-unintended-bias-in-toxicity-classification/predict.csv')
 test = pd.read_csv('../input/jigsaw-unintended-bias-in-toxicity-classification/test.csv')
 
 x_train = preprocess(train['comment_text'])

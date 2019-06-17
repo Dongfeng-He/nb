@@ -134,7 +134,7 @@ class Trainer:
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
             self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000).fillna(0.)
-            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
+            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
 

@@ -99,7 +99,7 @@ BERT_MODEL_PATH = '../input/bert-pretrained-models/uncased_l-12_h-768_a-12/uncas
 
 %%time
 tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_PATH, cache_dir=None,do_lower_case=True)
-train_df = pd.read_csv(os.path.join(Data_dir,"train.csv")).sample(num_to_load+valid_size,random_state=SEED)
+train_df = pd.read_csv(os.path.join(Data_dir,"predict.csv")).sample(num_to_load+valid_size,random_state=SEED)
 print('loaded %d records' % len(train_df))
 
 # Make sure all comment_text values are strings
@@ -156,7 +156,7 @@ optimizer = BertAdam(optimizer_grouped_parameters,
                      t_total=num_train_optimization_steps)
 
 model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
-model=model.train()
+model=model.predict()
 
 tq = tqdm_notebook(range(EPOCHS))
 for epoch in tq:

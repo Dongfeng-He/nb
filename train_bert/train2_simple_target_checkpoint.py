@@ -24,17 +24,12 @@ class BertNeuralNet(BertPreTrainedModel):
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.linear_out = nn.Linear(config.hidden_size, 1)
-        self.linear_aux_out = nn.Linear(config.hidden_size, 5)
-        self.linear_identity_out = nn.Linear(config.hidden_size, 9)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         bert_output = self.dropout(pooled_output)
-        result = self.linear_out(bert_output)
-        aux_result = self.linear_aux_out(bert_output)
-        identity_result = self.linear_identity_out(bert_output)
-        out = torch.cat([result, aux_result, identity_result], 1)
+        out = self.linear_out(bert_output)
         return out
 
 
@@ -82,10 +77,10 @@ class Trainer:
         self.split_ratio = 0.95
         self.sample_num = 1804874
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(1000).fillna(0.)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000).fillna(0.)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -231,26 +226,12 @@ class Trainer:
     def custom_loss(self, y_pred, y_batch, epoch, target_weight=1., aux_weight=1., identity_weight=1.):
         target_pred = y_pred[:, 0]
         target_true = y_batch[:, 0]
-        aux_pred = y_pred[:, 1: 6]
-        aux_true = y_batch[:, 1: 6]
-        identity_pred = y_pred[:, 6:]
-        identity_true = y_batch[:, 6:]
-        if epoch > 7:
+        if True:
             target_loss = FocalLoss()(target_pred, target_true)
         else:
             target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if epoch > 7:
-            aux_loss = FocalLoss()(aux_pred, aux_true)
-        else:
-            aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
-        aux_loss = torch.mean(aux_loss * aux_weight)
-        if epoch > 7:
-            identity_loss = FocalLoss()(identity_pred, identity_true)
-        else:
-            identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
-        identity_loss = torch.mean(identity_loss * identity_weight)
-        return target_loss, aux_loss, identity_loss
+        return target_loss
 
     def train(self):
         if self.debug_mode: self.epochs = 1
@@ -258,7 +239,7 @@ class Trainer:
         train_loader, valid_loader = self.create_dataloader()
         # 训练
         self.seed_everything()
-        lr = 2e-5
+        lr = 2e-6
         accumulation_steps = math.ceil(self.batch_size / self.base_batch_size)
         # 预训练 bert 转成 pytorch
         if os.path.exists(self.bert_model_path + "pytorch_model.bin") is False:
@@ -268,6 +249,7 @@ class Trainer:
                 self.bert_model_path + 'pytorch_model.bin')
         # 加载预训练模型
         model = BertNeuralNet.from_pretrained(self.bert_model_path, cache_dir=None)
+        model.load_state_dict(torch.load("/root/nb/data/model/model[bert][1234][2][17][train2_simple_target][0.9419].bin"))
         model.zero_grad()
         model = model.to(self.device)
         # 不同的参数组设置不同的 weight_decay
@@ -287,7 +269,7 @@ class Trainer:
         # 开始训练
         for epoch in range(self.epochs):
             train_start_time = time.time()
-            model.predict()
+            model.train()
             optimizer.zero_grad()
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_loader):
@@ -298,8 +280,8 @@ class Trainer:
                 identity_weight_batch = batch_data[4]
                 x_mask = batch_data[5]
                 y_pred = model(x_batch, attention_mask=x_mask, labels=None)
-                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
-                loss = target_loss + aux_loss + identity_loss
+                target_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
+                loss = target_loss
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
                 if (i + 1) % accumulation_steps == 0:
@@ -325,12 +307,12 @@ class Trainer:
                         valid_duration = int((time.time() - valid_start_time) / 60)
                         if epoch == 0 and stage == 1:
                             # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
+                            model_name = "model1/model_bert_%d_%d_%d_%s_%dmin_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
                         else:
                             # model[bert][seed][epoch][stage][model_name][score].bin
-                            model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
+                            model_name = "model1/model_bert_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
-                    model.predict()
+                    model.train()
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
         for variable in training_history:
@@ -340,5 +322,5 @@ class Trainer:
 
 if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
-    trainer = Trainer(data_dir, "model_name", debug_mode=True)
+    trainer = Trainer(data_dir, "model_name", seed=42, debug_mode=True)
     trainer.train()

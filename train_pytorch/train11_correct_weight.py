@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-from evaluation import *
 import random
 import copy
 from keras.preprocessing import text, sequence
@@ -12,7 +11,61 @@ import numpy as np
 import time
 import math
 import gc
-import re
+from sklearn.metrics import roc_auc_score
+
+
+class JigsawEvaluator:
+    def __init__(self, y_true, y_identity, power=-5, overall_model_weight=0.25):
+        self.y = (y_true >= 0.5).astype(int)
+        self.y_i = (y_identity >= 0.5).astype(int)
+        self.n_subgroups = self.y_i.shape[1]
+        self.power = power
+        self.overall_model_weight = overall_model_weight
+
+    @staticmethod
+    def _compute_auc(y_true, y_pred):
+        try:
+            return roc_auc_score(y_true, y_pred)
+        except ValueError:
+            return np.nan
+
+    def _compute_subgroup_auc(self, i, y_pred):
+        mask = self.y_i[:, i] == 1
+        return self._compute_auc(self.y[mask], y_pred[mask])
+
+    def _compute_bpsn_auc(self, i, y_pred):
+        mask = self.y_i[:, i] + self.y == 1
+        return self._compute_auc(self.y[mask], y_pred[mask])
+
+    def _compute_bnsp_auc(self, i, y_pred):
+        mask = self.y_i[:, i] + self.y != 1
+        return self._compute_auc(self.y[mask], y_pred[mask])
+
+    def compute_bias_metrics_for_model(self, y_pred):
+        records = np.zeros((3, self.n_subgroups))
+        for i in range(self.n_subgroups):
+            records[0, i] = self._compute_subgroup_auc(i, y_pred)
+            records[1, i] = self._compute_bpsn_auc(i, y_pred)
+            records[2, i] = self._compute_bnsp_auc(i, y_pred)
+        return records
+
+    def _calculate_overall_auc(self, y_pred):
+        return roc_auc_score(self.y, y_pred)
+
+    def _power_mean(self, array):
+        total = sum(np.power(array, self.power))
+        return np.power(total / len(array), 1 / self.power)
+
+    def get_final_metric(self, y_pred):
+        bias_metrics = self.compute_bias_metrics_for_model(y_pred)
+        bias_score = np.average([
+            self._power_mean(bias_metrics[0]),
+            self._power_mean(bias_metrics[1]),
+            self._power_mean(bias_metrics[2])
+        ])
+        overall_score = self.overall_model_weight * self._calculate_overall_auc(y_pred)
+        bias_score = (1 - self.overall_model_weight) * bias_score
+        return overall_score + bias_score
 
 
 class FocalLoss(nn.Module):
@@ -111,43 +164,62 @@ class NeuralNet(nn.Module):
 
 
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=5, batch_size=512, part=1., debug_mode=False):
-        self.data_dir = data_dir
+    def __init__(self, model_name, epochs=5, batch_size=512, part=1., seed=1234, debug_mode=False):
         self.debug_mode = debug_mode
         self.model_name = model_name
+        self.seed = seed
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
-        self.weight_dict = {"severe_toxicity": 1000, "obscene": 195, "identity_attack": 277, "insult": 21,
-                            "threat": 608, "male": 44, "female": 32, "homosexual_gay_or_lesbian": 197, "christian": 47,
-                            "jewish": 242, "muslim": 132, "black": 130, "white": 89, "psychiatric_or_mental_illness": 368,
-                            "np": 12, "pn": 15}
+        if part == 1.:
+            self.weight_dict = {"severe_toxicity": 1000, "obscene": 235, "identity_attack": 236, "insult": 22,
+                            "threat": 646, "male": 45, "female": 35, "homosexual_gay_or_lesbian": 176, "christian": 50,
+                            "jewish": 249, "muslim": 91, "black": 130, "white": 75, "psychiatric_or_mental_illness": 442,
+                            "pp": 101, "np": 13, "pn": 20, "nn": 1,
+                            "pp_male": 431, "np_male": 50, "pn_male": 17, "nn_male": 1,
+                            "pp_female": 384, "np_female": 39, "pn_female": 17, "nn_female": 1,
+                            "pp_homosexual_gay_or_lesbian": 900, "np_homosexual_gay_or_lesbian": 219, "pn_homosexual_gay_or_lesbian": 17, "nn_homosexual_gay_or_lesbian": 1,
+                            "pp_christian": 859, "np_christian": 54, "pn_christian": 17, "nn_christian": 1,
+                            "pp_jewish": 2365, "np_jewish": 278, "pn_jewish": 17, "nn_jewish": 1,
+                            "pp_muslim": 606, "np_muslim": 108, "pn_muslim": 17, "nn_muslim": 1,
+                            "pp_black": 586, "np_black": 167, "pn_black": 17, "nn_black": 1,
+                            "pp_white": 387, "np_white": 94, "pn_white": 17, "nn_white": 1,
+                            "pp_psychiatric_or_mental_illness": 2874, "np_psychiatric_or_mental_illness": 523, "pn_psychiatric_or_mental_illness": 17, "nn_psychiatric_or_mental_illness": 1}
+        else:
+            self.weight_dict = {"severe_toxicity": 1000, "obscene": 196, "identity_attack": 278, "insult": 22,
+                            "threat": 609, "male": 45, "female": 33, "homosexual_gay_or_lesbian": 198, "christian": 48,
+                            "jewish": 243, "muslim": 133, "black": 131, "white": 90, "psychiatric_or_mental_illness": 369,
+                            "pp": 107, "np": 13, "pn": 19, "nn": 1,
+                            "pp_male": 434, "np_male": 51, "pn_male": 17, "nn_male": 1,
+                            "pp_female": 324, "np_female": 37, "pn_female": 17, "nn_female": 1,
+                            "pp_homosexual_gay_or_lesbian": 1055, "np_homosexual_gay_or_lesbian": 244, "pn_homosexual_gay_or_lesbian": 17, "nn_homosexual_gay_or_lesbian": 1,
+                            "pp_christian": 986, "np_christian": 50, "pn_christian": 17, "nn_christian": 1,
+                            "pp_jewish": 2680, "np_jewish": 268, "pn_jewish": 16, "nn_jewish": 1,
+                            "pp_muslim": 772, "np_muslim": 161, "pn_muslim": 17, "nn_muslim": 1,
+                            "pp_black": 633, "np_black": 165, "pn_black": 17, "nn_black": 1,
+                            "pp_white": 465, "np_white": 111, "pn_white": 17, "nn_white": 1,
+                            "pp_psychiatric_or_mental_illness": 2748, "np_psychiatric_or_mental_illness": 427, "pn_psychiatric_or_mental_illness": 16, "nn_psychiatric_or_mental_illness": 1}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
-        self.seed = 5
         self.max_len = 220
         self.epochs = epochs
         self.batch_size = batch_size
         self.split_ratio = 0.95
         self.sample_num = 1804874
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(int(self.sample_num * part)).fillna(0.)
-            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
+            self.train_df = pd.read_csv("../input/jigsaw-unintended-bias-in-toxicity-classification/predict.csv").sample(int(self.sample_num * part), random_state=1234).fillna(0.)
+            self.test_df = pd.read_csv("../input/jigsaw-unintended-bias-in-toxicity-classification/test.csv")
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(1000).fillna(0.)
-            self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
+            self.train_df = pd.read_csv("../input/jigsaw-unintended-bias-in-toxicity-classification/predict.csv").head(1000).fillna(0.)
+            self.test_df = pd.read_csv("../input/jigsaw-unintended-bias-in-toxicity-classification/test.csv").head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
-        self.mapping_dict = None
-        self.contraction_mapping = None
-        self.contraction_re = None
-        self.init_text_cleaner()
 
-    def seed_everything(self, seed=1234):
-        random.seed(seed)
-        os.environ['PYTHONHASHSEED'] = str(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
+    def seed_everything(self):
+        random.seed(self.seed)
+        os.environ['PYTHONHASHSEED'] = str(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        torch.cuda.manual_seed(self.seed)
         torch.backends.cudnn.deterministic = True
 
     def init_evaluator(self):
@@ -159,82 +231,9 @@ class Trainer:
         evaluator = JigsawEvaluator(valid_y_true, valid_y_identity) # y_true 必须是0或1，不能是离散值
         return evaluator
 
-    def init_text_cleaner(self):
-        # 有词向量的特殊字符进行隔离，没有的进行删除
-        symbols_to_isolate = '.,?!-;*"…:—()%#$&_/@＼・ω+=”“[]^–>\\°<~•≠™ˈʊɒ∞§{}·τα❤☺ɡ|¢→̶`❥━┣┫┗Ｏ►★©―ɪ✔®\x96\x92●£♥➤´¹☕≈÷♡◐║▬′ɔː€۩۞†μ✒➥═☆ˌ◄½ʻπδηλσερνʃ✬ＳＵＰＥＲＩＴ☻±♍µº¾✓◾؟．⬅℅»Вав❣⋅¿¬♫ＣＭβ█▓▒░⇒⭐›¡₂₃❧▰▔◞▀▂▃▄▅▆▇↙γ̄″☹➡«φ⅓„✋：¥̲̅́∙‛◇✏▷❓❗¶˚˙）сиʿ✨。ɑ\x80◕！％¯−ﬂﬁ₁²ʌ¼⁴⁄₄⌠♭✘╪▶☭✭♪☔☠♂☃☎✈✌✰❆☙○‣⚓年∎ℒ▪▙☏⅛ｃａｓǀ℮¸ｗ‚∼‖ℳ❄←☼⋆ʒ⊂、⅔¨͡๏⚾⚽Φ×θ￦？（℃⏩☮⚠月✊❌⭕▸■⇌☐☑⚡☄ǫ╭∩╮，例＞ʕɐ̣Δ₀✞┈╱╲▏▕┃╰▊▋╯┳┊≥☒↑☝ɹ✅☛♩☞ＡＪＢ◔◡↓♀⬆̱ℏ\x91⠀ˤ╚↺⇤∏✾◦♬³の｜／∵∴√Ω¤☜▲↳▫‿⬇✧ｏｖｍ－２０８＇‰≤∕ˆ⚜☁'
-        symbols_to_delete = '\n🍕\r🐵😑\xa0\ue014\t\uf818\uf04a\xad😢🐶️\uf0e0😜😎👊\u200b\u200e😁عدويهصقأناخلىبمغر😍💖💵Е👎😀😂\u202a\u202c🔥😄🏻💥ᴍʏʀᴇɴᴅᴏᴀᴋʜᴜʟᴛᴄᴘʙғᴊᴡɢ😋👏שלוםבי😱‼\x81エンジ故障\u2009🚌ᴵ͞🌟😊😳😧🙀😐😕\u200f👍😮😃😘אעכח💩💯⛽🚄🏼ஜ😖ᴠ🚲‐😟😈💪🙏🎯🌹😇💔😡\x7f👌ἐὶήιὲκἀίῃἴξ🙄Ｈ😠\ufeff\u2028😉😤⛺🙂\u3000تحكسة👮💙فزط😏🍾🎉😞\u2008🏾😅😭👻😥😔😓🏽🎆🍻🍽🎶🌺🤔😪\x08‑🐰🐇🐱🙆😨🙃💕𝘊𝘦𝘳𝘢𝘵𝘰𝘤𝘺𝘴𝘪𝘧𝘮𝘣💗💚地獄谷улкнПоАН🐾🐕😆ה🔗🚽歌舞伎🙈😴🏿🤗🇺🇸мυтѕ⤵🏆🎃😩\u200a🌠🐟💫💰💎эпрд\x95🖐🙅⛲🍰🤐👆🙌\u2002💛🙁👀🙊🙉\u2004ˢᵒʳʸᴼᴷᴺʷᵗʰᵉᵘ\x13🚬🤓\ue602😵άοόςέὸתמדףנרךצט😒͝🆕👅👥👄🔄🔤👉👤👶👲🔛🎓\uf0b7\uf04c\x9f\x10成都😣⏺😌🤑🌏😯ех😲Ἰᾶὁ💞🚓🔔📚🏀👐\u202d💤🍇\ue613小土豆🏡❔⁉\u202f👠》कर्मा🇹🇼🌸蔡英文🌞🎲レクサス😛外国人关系Сб💋💀🎄💜🤢َِьыгя不是\x9c\x9d🗑\u2005💃📣👿༼つ༽😰ḷЗз▱ц￼🤣卖温哥华议会下降你失去所有的钱加拿大坏税骗子🐝ツ🎅\x85🍺آإشء🎵🌎͟ἔ油别克🤡🤥😬🤧й\u2003🚀🤴ʲшчИОРФДЯМюж😝🖑ὐύύ特殊作戦群щ💨圆明园קℐ🏈😺🌍⏏ệ🍔🐮🍁🍆🍑🌮🌯🤦\u200d𝓒𝓲𝓿𝓵안영하세요ЖљКћ🍀😫🤤ῦ我出生在了可以说普通话汉语好极🎼🕺🍸🥂🗽🎇🎊🆘🤠👩🖒🚪天一家⚲\u2006⚭⚆⬭⬯⏖新✀╌🇫🇷🇩🇪🇮🇬🇧😷🇨🇦ХШ🌐\x1f杀鸡给猴看ʁ𝗪𝗵𝗲𝗻𝘆𝗼𝘂𝗿𝗮𝗹𝗶𝘇𝗯𝘁𝗰𝘀𝘅𝗽𝘄𝗱📺ϖ\u2000үսᴦᎥһͺ\u2007հ\u2001ɩｙｅ൦ｌƽｈ𝐓𝐡𝐞𝐫𝐮𝐝𝐚𝐃𝐜𝐩𝐭𝐢𝐨𝐧Ƅᴨןᑯ໐ΤᏧ௦Іᴑ܁𝐬𝐰𝐲𝐛𝐦𝐯𝐑𝐙𝐣𝐇𝐂𝐘𝟎ԜТᗞ౦〔Ꭻ𝐳𝐔𝐱𝟔𝟓𝐅🐋ﬃ💘💓ё𝘥𝘯𝘶💐🌋🌄🌅𝙬𝙖𝙨𝙤𝙣𝙡𝙮𝙘𝙠𝙚𝙙𝙜𝙧𝙥𝙩𝙪𝙗𝙞𝙝𝙛👺🐷ℋ𝐀𝐥𝐪🚶𝙢Ἱ🤘ͦ💸ج패티Ｗ𝙇ᵻ👂👃ɜ🎫\uf0a7БУі🚢🚂ગુજરાતીῆ🏃𝓬𝓻𝓴𝓮𝓽𝓼☘﴾̯﴿₽\ue807𝑻𝒆𝒍𝒕𝒉𝒓𝒖𝒂𝒏𝒅𝒔𝒎𝒗𝒊👽😙\u200cЛ‒🎾👹⎌🏒⛸公寓养宠物吗🏄🐀🚑🤷操美𝒑𝒚𝒐𝑴🤙🐒欢迎来到阿拉斯ספ𝙫🐈𝒌𝙊𝙭𝙆𝙋𝙍𝘼𝙅ﷻ🦄巨收赢得白鬼愤怒要买额ẽ🚗🐳𝟏𝐟𝟖𝟑𝟕𝒄𝟗𝐠𝙄𝙃👇锟斤拷𝗢𝟳𝟱𝟬⦁マルハニチロ株式社⛷한국어ㄸㅓ니͜ʖ𝘿𝙔₵𝒩ℯ𝒾𝓁𝒶𝓉𝓇𝓊𝓃𝓈𝓅ℴ𝒻𝒽𝓀𝓌𝒸𝓎𝙏ζ𝙟𝘃𝗺𝟮𝟭𝟯𝟲👋🦊多伦🐽🎻🎹⛓🏹🍷🦆为和中友谊祝贺与其想象对法如直接问用自己猜本传教士没积唯认识基督徒曾经让相信耶稣复活死怪他但当们聊些政治题时候战胜因圣把全堂结婚孩恐惧且栗谓这样还♾🎸🤕🤒⛑🎁批判检讨🏝🦁🙋😶쥐스탱트뤼도석유가격인상이경제황을렵게만들지않록잘관리해야합다캐나에서대마초와화약금의품런성분갈때는반드시허된사용🔫👁凸ὰ💲🗯𝙈Ἄ𝒇𝒈𝒘𝒃𝑬𝑶𝕾𝖙𝖗𝖆𝖎𝖌𝖍𝖕𝖊𝖔𝖑𝖉𝖓𝖐𝖜𝖞𝖚𝖇𝕿𝖘𝖄𝖛𝖒𝖋𝖂𝕴𝖟𝖈𝕸👑🚿💡知彼百\uf005𝙀𝒛𝑲𝑳𝑾𝒋𝟒😦𝙒𝘾𝘽🏐𝘩𝘨ὼṑ𝑱𝑹𝑫𝑵𝑪🇰🇵👾ᓇᒧᔭᐃᐧᐦᑳᐨᓃᓂᑲᐸᑭᑎᓀᐣ🐄🎈🔨🐎🤞🐸💟🎰🌝🛳点击查版🍭𝑥𝑦𝑧ＮＧ👣\uf020っ🏉ф💭🎥Ξ🐴👨🤳🦍\x0b🍩𝑯𝒒😗𝟐🏂👳🍗🕉🐲چی𝑮𝗕𝗴🍒ꜥⲣⲏ🐑⏰鉄リ事件ї💊「」\uf203\uf09a\uf222\ue608\uf202\uf099\uf469\ue607\uf410\ue600燻製シ虚偽屁理屈Г𝑩𝑰𝒀𝑺🌤𝗳𝗜𝗙𝗦𝗧🍊ὺἈἡχῖΛ⤏🇳𝒙ψՁմեռայինրւդձ冬至ὀ𝒁🔹🤚🍎𝑷🐂💅𝘬𝘱𝘸𝘷𝘐𝘭𝘓𝘖𝘹𝘲𝘫کΒώ💢ΜΟΝΑΕ🇱♲𝝈↴💒⊘Ȼ🚴🖕🖤🥘📍👈➕🚫🎨🌑🐻𝐎𝐍𝐊𝑭🤖🎎😼🕷ｇｒｎｔｉｄｕｆｂｋ𝟰🇴🇭🇻🇲𝗞𝗭𝗘𝗤👼📉🍟🍦🌈🔭《🐊🐍\uf10aლڡ🐦\U0001f92f\U0001f92a🐡💳ἱ🙇𝗸𝗟𝗠𝗷🥜さようなら🔼'
-        small_caps_mapping = {"ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d", "ᴇ": "e", "ғ": "f", "ɢ": "g", "ʜ": "h", "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l", "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p", "ǫ": "q", "ʀ": "r", "s": "s", "ᴛ": "t", "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "x": "x", "ʏ": "y", "ᴢ": "z"}
-        contraction_mapping = {
-            "ain't": "is not", "aren't": "are not", "can't": "cannot", "'cause": "because", "could've": "could have",
-            "couldn't": "could not",
-            "didn't": "did not", "doesn't": "does not", "don't": "do not", "hadn't": "had not", "hasn't": "has not",
-            "haven't": "have not",
-            "he'd": "he would", "he'll": "he will", "he's": "he is", "how'd": "how did", "how'd'y": "how do you",
-            "how'll": "how will", "how's": "how is",
-            "I'd": "I would", "I'd've": "I would have", "I'll": "I will", "I'll've": "I will have", "I'm": "I am",
-            "I've": "I have", "i'd": "i would", "i'd've":
-                "i would have", "i'll": "i will", "i'll've": "i will have", "i'm": "i am", "i've": "i have",
-            "isn't": "is not", "it'd": "it would",
-            "it'd've": "it would have", "it'll": "it will", "it'll've": "it will have", "it's": "it is",
-            "let's": "let us", "ma'am": "madam",
-            "mayn't": "may not", "might've": "might have", "mightn't": "might not", "mightn't've": "might not have",
-            "must've": "must have",
-            "mustn't": "must not", "mustn't've": "must not have", "needn't": "need not", "needn't've": "need not have",
-            "o'clock": "of the clock", "oughtn't": "ought not", "oughtn't've": "ought not have", "shan't": "shall not",
-            "sha'n't": "shall not", "shan't've": "shall not have", "she'd": "she would", "she'd've": "she would have",
-            "she'll": "she will", "she'll've": "she will have", "she's": "she is", "should've": "should have",
-            "shouldn't": "should not",
-            "shouldn't've": "should not have", "so've": "so have", "so's": "so as", "this's": "this is",
-            "that'd": "that would",
-            "that'd've": "that would have", "that's": "that is", "there'd": "there would",
-            "there'd've": "there would have", "there's": "there is",
-            "here's": "here is", "they'd": "they would", "they'd've": "they would have", "they'll": "they will",
-            "they'll've": "they will have",
-            "they're": "they are", "they've": "they have", "to've": "to have", "wasn't": "was not", "we'd": "we would",
-            "we'd've": "we would have",
-            "we'll": "we will", "we'll've": "we will have", "we're": "we are", "we've": "we have",
-            "weren't": "were not", "what'll": "what will",
-            "what'll've": "what will have", "what're": "what are", "what's": "what is", "what've": "what have",
-            "when's": "when is",
-            "when've": "when have", "where'd": "where did", "where's": "where is", "where've": "where have",
-            "who'll": "who will", "who'll've": "who will have",
-            "who's": "who is", "who've": "who have", "why's": "why is", "why've": "why have", "will've": "will have",
-            "won't": "will not",
-            "won't've": "will not have", "would've": "would have", "wouldn't": "would not",
-            "wouldn't've": "would not have",
-            "y'all": "you all", "y'all'd": "you all would", "y'all'd've": "you all would have",
-            "y'all're": "you all are", "y'all've": "you all have",
-            "you'd": "you would", "you'd've": "you would have", "you'll": "you will", "you'll've": "you will have",
-            "you're": "you are", "you've": "you have",
-            "trump's": "trump is", "obama's": "obama is", "canada's": "canada is", "today's": "today is"}
-        # 字符的替换字典的 key 要转成 ascii 码才能用 translate
-        isolate_dict = {ord(c): f' {c} ' for c in symbols_to_isolate}
-        remove_dict = {ord(c): f'' for c in symbols_to_delete}
-        small_caps_mapping_dict = {ord(k): v for k, v in small_caps_mapping.items()}
-        mapping_dict = {}
-        mapping_dict.update(isolate_dict)
-        mapping_dict.update(remove_dict)
-        mapping_dict.update(small_caps_mapping_dict)
-        contraction_re = re.compile('(%s)' % '|'.join(contraction_mapping.keys()))
-        self.mapping_dict = mapping_dict
-        self.contraction_mapping = contraction_mapping
-        self.contraction_re = contraction_re
-
-    def clean_text(self, x):
-        # 将简写展开
-        x = self.contraction_re.sub(lambda match: self.contraction_mapping[match.group(0)], x)
-        # 隔离和删除特殊字符
-        x = x.translate(self.mapping_dict)
-        # 删除词语前的引号
-        x = x.split(" ")
-        x = [x_[1:] if x_.startswith("'") else x_ for x_ in x]
-        x = ' '.join(x)
-        return x
-
     def create_dataloader(self):
         # 读取输入输出
-        #train_comments = self.train_df["comment_text"].astype(str)
-        train_comments = self.train_df["comment_text"].astype(str).apply(lambda x: self.clean_text(x))
+        train_comments = self.train_df["comment_text"].astype(str)
         train_label = self.train_df["target"].values
         train_type_labels = self.train_df[self.toxicity_type_list].values
 
@@ -258,12 +257,8 @@ class Trainer:
         train_identity_binary_label = train_identity_or_binary
 
         # tokenizer 训练
-        # 清理数据
-        #test_comments = self.test_df["comment_text"].astype(str)
-        test_comments = self.test_df["comment_text"].astype(str).apply(lambda x: self.clean_text(x))
-        #tokenizer = text.Tokenizer(filters=self.stopwords)
-        # 如果 filter 不置为空，会自动删掉很多字符，lower 不置为 False 会自动全部小写
-        tokenizer = text.Tokenizer(filters='', lower=False)
+        test_comments = self.test_df["comment_text"].astype(str)
+        tokenizer = text.Tokenizer(filters=self.stopwords)
         tokenizer.fit_on_texts(list(train_comments) + list(test_comments))    # train_comments 是 dataframe 的一列，是 Series 类， list(train_comments) 直接变成 list
         # tokenization
         train_tokens = tokenizer.texts_to_sequences(train_comments)     # 可以给 Series 也可以给 list？
@@ -336,9 +331,10 @@ class Trainer:
             target_weight += self.train_df["target"] * (~self.train_df[self.identity_list]).sum(axis=1) * 5
         else:
             target_weight += (~self.train_df["target"]) * np.where(self.train_df[self.identity_list].sum(axis=1) > 0, 1, 0) * 3
-            target_weight += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 3
+            target_weight += self.train_df["target"] * np.where(self.train_df[self.identity_list].sum(axis=1) == 0, 1, 0) * 3
         target_weight /= target_weight.mean()
         # 只留训练集
+        target_weight = np.array(target_weight)
         target_weight = target_weight[:self.train_len]
         aux_weight = aux_weight[:self.train_len, :]
         identity_weight = identity_weight[:self.train_len, :]
@@ -346,7 +342,7 @@ class Trainer:
 
     def create_emb_weights(self, word_index):
         # 构建词向量字典
-        with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
+        with open("../input/fasttext-crawl-300d-2m/crawl-300d-2M.vec", "r") as f:
             fasttext_emb_dict = {}
             for i, line in enumerate(f):
                 if i == 1000 and self.debug_mode: break
@@ -355,7 +351,7 @@ class Trainer:
                 if word not in word_index: continue
                 emb = np.array([float(num) for num in split[1:]])
                 fasttext_emb_dict[word] = emb
-        with open(os.path.join(self.data_dir, "glove.840B.300d.txt"), "r") as f:
+        with open("../input/glove840b300dtxt/glove.840B.300d.txt", "r") as f:
             glove_emb_dict = {}
             for i, line in enumerate(f):
                 if i == 1000 and self.debug_mode: break
@@ -393,14 +389,17 @@ class Trainer:
         aux_true = y_batch[:, 1: 6]
         identity_pred = y_pred[:, 6:]
         identity_true = y_batch[:, 6:]
-        target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
+        if epoch > 9:
+            target_loss = FocalLoss()(target_pred, target_true)
+        else:
+            target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if epoch > 7:
+        if epoch > 9:
             aux_loss = FocalLoss()(aux_pred, aux_true)
         else:
             aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        if epoch > 7:
+        if epoch > 9:
             identity_loss = FocalLoss()(identity_pred, identity_true)
         else:
             identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
@@ -414,7 +413,7 @@ class Trainer:
         # 生成 embedding
         word_embedding = self.create_emb_weights(tokenizer.word_index)
         # 训练
-        self.seed_everything(1234)
+        self.seed_everything()
         model = NeuralNet(word_embedding)
         if torch.cuda.is_available():
             model.cuda()
@@ -431,7 +430,7 @@ class Trainer:
         for epoch in range(self.epochs):
             start_time = time.time()
             # 调整一次学习速率
-            if epoch <= 9:
+            if epoch <= 10:
                 scheduler.step()
             # 切换为训练模式
             model.train()
@@ -467,7 +466,7 @@ class Trainer:
             if not self.debug_mode and epoch > 0:
                 temp_dict = model.state_dict()
                 del temp_dict['embedding.weight']
-                torch.save(temp_dict, os.path.join(self.data_dir, "model/model[pytorch][%s]_%d_%.5f" % (self.model_name, epoch, auc_score)))
+                torch.save(temp_dict, "model[pytorch][%d][%s][%d][%.4f].bin" % (self.seed, self.model_name, epoch, auc_score))
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, tokenizer, word_embedding, model, optimizer, scheduler]
         for variable in training_history:
@@ -475,7 +474,11 @@ class Trainer:
         gc.collect()
 
 
-if __name__ == "__main__":
-    data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
-    trainer = Trainer(data_dir, "model_name", debug_mode=True)
-    trainer.train()
+print("train11_correct_weight.py")
+trainer = Trainer(model_name="train10_focal_loss_seed_kernel", epochs=25, batch_size=512, part=1., seed=1234, debug_mode=False)
+trainer.train()
+
+"""
+fasttext-crawl-300d-2m
+glove840b300dtxt
+"""

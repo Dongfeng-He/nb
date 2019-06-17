@@ -80,7 +80,7 @@ class Trainer:
         self.batch_size = batch_size
         self.split_ratio = 0.95
         self.sample_num = 1804874
-        self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(int(self.sample_num * part))
+        self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(int(self.sample_num * part))
         self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()

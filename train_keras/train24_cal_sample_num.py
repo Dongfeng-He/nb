@@ -22,94 +22,12 @@ class Trainer:
         self.max_len = 220
         self.split_ratio = 0.95
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv"))
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv"))
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train_keras.csv")).head(1000)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(1000)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
-        self.evaluator = self.init_evaluator()
-
-    def init_evaluator(self):
-        # 初始化评分函数类
-        y_true = self.train_df['target'].values
-        y_identity = self.train_df[self.identity_list].values
-        valid_y_true = y_true[self.train_len:]
-        valid_y_identity = y_identity[self.train_len:]
-        evaluator = JigsawEvaluator(valid_y_true, valid_y_identity) # y_true 必须是0或1，不能是离散值
-        return evaluator
-
-    def create_train_data(self):
-        # 读取输入输出
-        train_comments = self.train_df["comment_text"].astype(str)
-        train_label = self.train_df["target"].values
-        train_type_labels = self.train_df[self.toxicity_type_list].values
-
-        # 身份原始值
-        train_identity_values = self.train_df[self.identity_list].fillna(0.).values
-        # 所有身份原始值之和
-        train_identity_sum = train_identity_values.sum(axis=1)
-        # 将身份之和限制在1以下（sigmoid）
-        train_identity_sum_label = np.where(train_identity_sum > 1, 1, train_identity_sum)
-        # 身份01值
-        train_identity_binary = copy.deepcopy(self.train_df[self.identity_list])
-        for column in self.identity_list:
-            train_identity_binary[column] = np.where(train_identity_binary[column] > 0.5, 1, 0)
-        # 身份01值有一个就算1
-        train_identity_binary_sum = train_identity_binary.sum(axis=1)
-        train_identity_or_binary = np.where(train_identity_binary_sum >= 1, 1, 0)
-        # 所有身份标签
-        train_identity_type_labels = train_identity_values
-        train_identity_type_binary_lables = train_identity_binary
-        train_identity_sum_label = train_identity_sum_label
-        train_identity_binary_label = train_identity_binary
-
-        test_comments = self.test_df["comment_text"].astype(str)
-        # tokenizer 训练
-        tokenizer = text.Tokenizer(filters=self.stopwords)
-        tokenizer.fit_on_texts(list(train_comments) + list(test_comments))    # train_comments 是 dataframe 的一列，是 Series 类， list(train_comments) 直接变成 list
-        # tokenization
-        train_tokens = tokenizer.texts_to_sequences(train_comments)     # 可以给 Series 也可以给 list？
-        test_tokens = tokenizer.texts_to_sequences(test_comments)
-        # 用 sequence 类补到定长
-        train_tokens = sequence.pad_sequences(train_tokens, maxlen=self.max_len)
-        test_tokens = sequence.pad_sequences(test_tokens, maxlen=self.max_len)
-        # 划分训练集和验证集
-        valid_tokens = train_tokens[self.train_len:]
-        valid_label = train_label[self.train_len:]
-        valid_type_labels = train_type_labels[self.train_len:]
-        train_tokens = train_tokens[:self.train_len]
-        train_label = train_label[:self.train_len]
-        train_type_labels = train_type_labels[:self.train_len]
-
-        # 划分身份标签
-        valid_identity_type_labels = train_identity_type_labels[self.train_len:]
-        train_identity_type_labels = train_identity_type_labels[:self.train_len]
-        valid_identity_type_binary_lables = train_identity_type_binary_lables[self.train_len:]
-        train_identity_type_binary_lables = train_identity_type_binary_lables[:self.train_len]
-        valid_identity_sum_label = train_identity_sum_label[self.train_len:]
-        train_identity_sum_label = train_identity_sum_label[:self.train_len]
-        valid_identity_binary_label = train_identity_binary_label[self.train_len:]
-        train_identity_binary_label = train_identity_binary_label[:self.train_len]
-
-        # 数据集
-        dataset = {"train_tokens": train_tokens,
-                   "train_label": train_label,
-                   "train_type_labels": train_type_labels,
-                   "valid_tokens": valid_tokens,
-                   "valid_label": valid_label,
-                   "valid_type_labels": valid_type_labels,
-                   "test_tokens": test_tokens,
-                   "tokenizer": tokenizer,
-                   "valid_identity_type_labels": valid_identity_type_labels,
-                   "train_identity_type_labels": train_identity_type_labels,
-                   "valid_identity_type_binary_lables": valid_identity_type_binary_lables,
-                   "train_identity_type_binary_lables": train_identity_type_binary_lables,
-                   "valid_identity_sum_label": valid_identity_sum_label,
-                   "train_identity_sum_label": train_identity_sum_label,
-                   "valid_identity_binary_label": valid_identity_binary_label,
-                   "train_identity_binary_label": train_identity_binary_label}
-        return dataset
 
     def cal_sample_weights(self, percent):
         train_df = copy.deepcopy(self.train_df.head(int(len(self.train_df) * percent)))
@@ -119,108 +37,50 @@ class Trainer:
         # 把 train_df 中的 target 和 所有身份的值变成 bool
         for column in self.identity_list + ["target"]:
             train_df[column] = np.where(train_df[column] > 0.5, True, False)
-        sample_num_dict["np"] = np.sum((~train_df["target"]) * np.where(train_df[self.identity_list].sum(axis=1) > 0, 1, 0))
-        sample_num_dict["pn"] = np.sum(train_df["target"] * np.where((~train_df[self.identity_list]).sum(axis=1) > 0, 1, 0))
+        sample_num_dict["pp"] = np.sum((train_df["target"]) & np.where(train_df[self.identity_list].sum(axis=1) > 0, True, False))
+        sample_num_dict["np"] = np.sum((~train_df["target"]) & np.where(train_df[self.identity_list].sum(axis=1) > 0, True, False))
+        sample_num_dict["pn"] = np.sum(train_df["target"] & np.where((train_df[self.identity_list]).sum(axis=1) == 0, True, False))
+        sample_num_dict["nn"] = np.sum(~train_df["target"] & np.where((train_df[self.identity_list]).sum(axis=1) == 0, True, False))
+        for column in self.identity_list:
+            sample_num_dict["pp_%s" % column] = np.sum((train_df["target"]) & (train_df[column]))
+            sample_num_dict["np_%s" % column] = np.sum((~train_df["target"]) & (train_df[column]))
+            sample_num_dict["pn_%s" % column] = np.sum(train_df["target"] & (~train_df[column]))
+            sample_num_dict["nn_%s" % column] = np.sum(~train_df["target"] & (~train_df[column]))
+            """
+            a = ~train_df[column]
+            b = np.where(a > 0, 1, 0)
+            b = train_df[column]
+            c = 1
+
+            a = np.where((~train_df[self.identity_list]).sum(axis=1) == 9, 1, 0)
+            b = np.where((train_df[self.identity_list]).sum(axis=1) > 0, 1, 0)
+            a = train_df["target"] * train_df[self.identity_list].sum(axis=1)
+
+            a = train_df[self.identity_list + ["target"]]
+            a = train_df["target"] * (~train_df[column])
+            c = np.where(a > 0, 1, 0)
+            b = (train_df["target"]) * (train_df[column])
+            print(1)
+            """
         print("percent: %f total: %d" % (percent, len(train_df)))
         for key, value in sample_num_dict.items():
-            print(key, value, int((len(train_df) - value) / value))
+            #print(key, value, int((len(train_df) - value) / value))
+            print(key, value, int(len(train_df) / value))
         print("")
 
-    def create_emb_weights(self, word_index):
-        with open(os.path.join(self.data_dir, "crawl-300d-2M.vec"), "r") as f:
-            fasttext_emb_dict = {}
-            for i, line in enumerate(f):
-                if i == 1000 and self.debug_mode: break
-                split = line.strip().split(" ")
-                word = split[0]
-                if word not in word_index: continue
-                emb = np.array([float(num) for num in split[1:]])
-                fasttext_emb_dict[word] = emb
-        with open(os.path.join(self.data_dir, "glove.840B.300d.txt"), "r") as f:
-            glove_emb_dict = {}
-            for i, line in enumerate(f):
-                if i == 1000 and self.debug_mode: break
-                split = line.strip().split(" ")
-                word = split[0]
-                if word not in word_index: continue
-                emb = np.array([float(num) for num in split[1:]])
-                glove_emb_dict[word] = emb
-        word_embedding = np.zeros((len(word_index) + 1, 600))     # tokenizer 自动留出0用来 padding
-        for word, index in word_index.items():
-            # 如果找不到 emb，尝试小写或首字母大写
-            if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                word = word.lower()
-                if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                    word = word.title()
-                    if word not in fasttext_emb_dict and word not in glove_emb_dict:
-                        word = word.upper()
-            fasttext_emb = fasttext_emb_dict[word] if word in fasttext_emb_dict else np.random.uniform(-0.25, 0.25, 300)
-            glove_emb = glove_emb_dict[word] if word in glove_emb_dict else np.random.uniform(-0.25, 0.25, 300)
-            word_embedding[index] = np.concatenate((fasttext_emb, glove_emb), axis=-1)
-        return np.array(word_embedding)
-
-    def build_model(self, emb_weights):
-        def hidden_layer(layer_input, layer_size, init, activation, dropout_rate=0.5):
-            output = Dense(layer_size, kernel_initializer=init)(layer_input)
-            output = BatchNormalization()(output)
-            output = Activation(activation)(output)
-            output = Dropout(dropout_rate)(output)
-            return output
-
-        if not self.debug_mode:
-            rnn_size = 256
-            hidden_size = 512
-        else:
-            rnn_size = 2
-            hidden_size = 2
-        # 嵌入层
-        token_input = Input(shape=(self.max_len,), dtype="int32")
-        embedding_layer = Embedding(input_dim=emb_weights.shape[0],
-                                    output_dim=emb_weights.shape[1],
-                                    weights=[emb_weights],
-                                    trainable=True)
-        token_emb = embedding_layer(token_input)
-        emb_model = Model(token_input, token_emb)
-
-        # 网络层
-
-
-        emb_input = Input(shape=(self.max_len, 600,), dtype="float32")
-
-
-        token_emb = SpatialDropout1D(0.2)(token_emb)
-        output1 = Bidirectional(CuDNNGRU(rnn_size, return_sequences=True))(token_emb)
-        output2 = Bidirectional(CuDNNLSTM(rnn_size, return_sequences=True))(token_emb)
-        output1 = GlobalMaxPooling1D()(output1)
-        output2 = GlobalMaxPooling1D()(output2)
-        # 拼接
-        output = concatenate([output1, output2])
-        # 全连接层
-        output = hidden_layer(output, hidden_size, "he_normal", "relu")
-        output = hidden_layer(output, hidden_size, "he_normal", "relu")
-        # 输出层
-        output1 = Dense(1, activation="sigmoid")(output)
-        output2 = Dense(6, activation="sigmoid")(output)
-        model = Model(token_input, [output1, output2])
-        model.compile(optimizer="adam",
-                      loss="binary_crossentropy",
-                      metrics=["acc"])
-        model.summary()
-        return model
-
-    def train(self, epochs=5, batch_size=16):
+    def train(self):
         if self.debug_mode: epochs = 1
         #dataset = self.create_dataloader()
-        self.cal_sample_weights(0.2)
+        #self.cal_sample_weights(0.2)
         self.cal_sample_weights(0.3)
-        self.cal_sample_weights(0.5)
+        #self.cal_sample_weights(0.5)
         self.cal_sample_weights(1)
 
 
 if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
     trainer = Trainer(data_dir, "model_name", False)
-    trainer.train(batch_size=16)
+    trainer.train()
 
     """
     percent: 0.200000 total: 360974
@@ -298,4 +158,120 @@ if __name__ == "__main__":
     psychiatric_or_mental_illness 4077 441
     np 135896 12
     pn 106438 15
+    """
+
+    """
+    percent: 0.300000 total: 541462
+    target 32202 16
+    severe_toxicity 1 541462
+    obscene 2753 196
+    identity_attack 1946 278
+    insult 24052 22
+    threat 889 609
+    male 11809 45
+    female 16285 33
+    homosexual_gay_or_lesbian 2728 198
+    christian 11167 48
+    jewish 2221 243
+    muslim 4064 133
+    black 4129 131
+    white 6005 90
+    psychiatric_or_mental_illness 1464 369
+    pp 5036 107
+    np 40053 13
+    pn 32202 16
+    nn 509260 1
+    pp_male 1246 434
+    np_male 10563 51
+    pn_male 30956 17
+    nn_male 498697 1
+    pp_female 1668 324
+    np_female 14617 37
+    pn_female 30534 17
+    nn_female 494643 1
+    pp_homosexual_gay_or_lesbian 513 1055
+    np_homosexual_gay_or_lesbian 2215 244
+    pn_homosexual_gay_or_lesbian 31689 17
+    nn_homosexual_gay_or_lesbian 507045 1
+    pp_christian 549 986
+    np_christian 10618 50
+    pn_christian 31653 17
+    nn_christian 498642 1
+    pp_jewish 202 2680
+    np_jewish 2019 268
+    pn_jewish 32000 16
+    nn_jewish 507241 1
+    pp_muslim 701 772
+    np_muslim 3363 161
+    pn_muslim 31501 17
+    nn_muslim 505897 1
+    pp_black 855 633
+    np_black 3274 165
+    pn_black 31347 17
+    nn_black 505986 1
+    pp_white 1163 465
+    np_white 4842 111
+    pn_white 31039 17
+    nn_white 504418 1
+    pp_psychiatric_or_mental_illness 197 2748
+    np_psychiatric_or_mental_illness 1267 427
+    pn_psychiatric_or_mental_illness 32005 16
+    nn_psychiatric_or_mental_illness 507993 1
+    
+    percent: 1.000000 total: 1804874
+    target 106438 16
+    severe_toxicity 8 225609
+    obscene 7648 235
+    identity_attack 7633 236
+    insult 79887 22
+    threat 2793 646
+    male 40036 45
+    female 50548 35
+    homosexual_gay_or_lesbian 10233 176
+    christian 35507 50
+    jewish 7239 249
+    muslim 19666 91
+    black 13869 130
+    white 23852 75
+    psychiatric_or_mental_illness 4077 442
+    pp 17777 101
+    np 135896 13
+    pn 106438 16
+    nn 1698436 1
+    pp_male 4187 431
+    np_male 35849 50
+    pn_male 102251 17
+    nn_male 1662587 1
+    pp_female 4689 384
+    np_female 45859 39
+    pn_female 101749 17
+    nn_female 1652577 1
+    pp_homosexual_gay_or_lesbian 2005 900
+    np_homosexual_gay_or_lesbian 8228 219
+    pn_homosexual_gay_or_lesbian 104433 17
+    nn_homosexual_gay_or_lesbian 1690208 1
+    pp_christian 2099 859
+    np_christian 33408 54
+    pn_christian 104339 17
+    nn_christian 1665028 1
+    pp_jewish 763 2365
+    np_jewish 6476 278
+    pn_jewish 105675 17
+    nn_jewish 1691960 1
+    pp_muslim 2974 606
+    np_muslim 16692 108
+    pn_muslim 103464 17
+    nn_muslim 1681744 1
+    pp_black 3079 586
+    np_black 10790 167
+    pn_black 103359 17
+    nn_black 1687646 1
+    pp_white 4660 387
+    np_white 19192 94
+    pn_white 101778 17
+    nn_white 1679244 1
+    pp_psychiatric_or_mental_illness 628 2874
+    np_psychiatric_or_mental_illness 3449 523
+    pn_psychiatric_or_mental_illness 105810 17
+    nn_psychiatric_or_mental_illness 1694987 1
     """
