@@ -447,7 +447,7 @@ class Trainer:
         print("Load checkpoint")
         model = BertNeuralNet.from_pretrained(self.work_dir, cache_dir=None)
         # TODO: 读取模型
-        model.load_state_dict(torch.load("../input/train46_bert_kernel/model_last.bin"))
+        model.load_state_dict(torch.load("../input/train46-bert-kernel/model_last.bin"))
         model.zero_grad()
         model = model.to(self.device)
         # 不同的参数组设置不同的 weight_decay

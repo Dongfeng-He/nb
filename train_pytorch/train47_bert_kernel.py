@@ -468,7 +468,7 @@ class Trainer:
         best_auc_score_4 = 0
         f_log = open("train_log.txt", "w")
         for epoch in range(self.epochs):
-            model.predict()
+            model.train()
             optimizer.zero_grad()
             # 加载每个 batch 并训练
             train_start_time = time.time()

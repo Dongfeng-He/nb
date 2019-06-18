@@ -239,7 +239,7 @@ class Trainer:
         train_loader, valid_loader = self.create_dataloader()
         # 训练
         self.seed_everything()
-        lr = 2e-6
+        lr = 7e-6
         accumulation_steps = math.ceil(self.batch_size / self.base_batch_size)
         # 预训练 bert 转成 pytorch
         if os.path.exists(self.bert_model_path + "pytorch_model.bin") is False:
@@ -249,7 +249,8 @@ class Trainer:
                 self.bert_model_path + 'pytorch_model.bin')
         # 加载预训练模型
         model = BertNeuralNet.from_pretrained(self.bert_model_path, cache_dir=None)
-        model.load_state_dict(torch.load("/root/nb/data/model/model[bert][1234][2][17][train2_simple_target][0.9419].bin"))
+        #model.load_state_dict(torch.load("/root/nb/data/model/model[bert][1234][2][17][train2_simple_target][0.9419].bin"))
+        model.load_state_dict(torch.load("/root/nb/data/model/model[bert][1234][1][20][train2_simple_target][0.9395].bin"))
         model.zero_grad()
         model = model.to(self.device)
         # 不同的参数组设置不同的 weight_decay
@@ -307,10 +308,10 @@ class Trainer:
                         valid_duration = int((time.time() - valid_start_time) / 60)
                         if epoch == 0 and stage == 1:
                             # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                            model_name = "model1/model_bert_%d_%d_%d_%s_%dmin_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
+                            model_name = "model2/model_bert_%d_%d_%d_%s_%dmin_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
                         else:
                             # model[bert][seed][epoch][stage][model_name][score].bin
-                            model_name = "model1/model_bert_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
+                            model_name = "model2/model_bert_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.train()
         # del 训练相关输入和模型
