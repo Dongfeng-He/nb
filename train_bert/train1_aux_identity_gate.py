@@ -133,10 +133,10 @@ class Trainer:
         self.split_ratio = 0.95
         self.sample_num = 1804874
         if not self.debug_mode:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv"))
         else:
-            self.train_df = pd.read_csv(os.path.join(self.data_dir, "predict.csv")).head(1000).fillna(0.)
+            self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).head(1000).fillna(0.)
             self.test_df = pd.read_csv(os.path.join(self.data_dir, "test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
@@ -338,7 +338,7 @@ class Trainer:
         # 开始训练
         for epoch in range(self.epochs):
             train_start_time = time.time()
-            model.predict()
+            model.train()
             optimizer.zero_grad()
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_loader):
@@ -381,7 +381,7 @@ class Trainer:
                             # model[bert][seed][epoch][stage][model_name][score].bin
                             model_name = "model/model_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
-                    model.predict()
+                    model.train()
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
         for variable in training_history:
