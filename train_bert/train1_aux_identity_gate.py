@@ -42,7 +42,7 @@ class BertNeuralNet(BertPreTrainedModel):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         bert_output = self.dropout(pooled_output)
 
-        # 全连接层
+        # 全连接层,
         identity_hidden = self.linear_identity_hidden(bert_output)
         identity_hidden = F.relu(identity_hidden)
         #identity_hidden = self.bn1(identity_hidden)
