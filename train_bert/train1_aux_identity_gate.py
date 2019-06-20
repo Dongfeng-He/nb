@@ -16,7 +16,6 @@ from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 from apex import amp
-torch.backend.cudnn.benchmark = True
 
 
 class BertNeuralNet(BertPreTrainedModel):
