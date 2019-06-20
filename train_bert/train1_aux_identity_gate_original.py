@@ -345,9 +345,9 @@ class Trainer:
                         stage = int((i + 1) / valid_every) + 1
                         duration = int((time.time() - start_time) / 60)
                         if epoch == 0 and stage == 1:
-                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, duration, auc_score)
+                            model_name = "model/model_%d_%d_%d_%s_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, duration, auc_score)
                         else:
-                            model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
+                            model_name = "model/model_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.predict()
         # del 训练相关输入和模型

@@ -96,10 +96,34 @@ class Trainer:
         self.seed = seed
         self.identity_list = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish', 'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
         self.toxicity_type_list = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
-        self.weight_dict = {"severe_toxicity": 1000, "obscene": 234, "identity_attack": 235, "insult": 21,
-                            "threat": 645, "male": 44, "female": 34, "homosexual_gay_or_lesbian": 175, "christian": 49,
-                            "jewish": 248, "muslim": 90, "black": 129, "white": 74, "psychiatric_or_mental_illness": 441,
-                            "np": 12, "pn": 15}
+        if part == 1.:
+            self.weight_dict = {"severe_toxicity": 1000, "obscene": 235, "identity_attack": 236, "insult": 22,
+                            "threat": 646, "male": 45, "female": 35, "homosexual_gay_or_lesbian": 176, "christian": 50,
+                            "jewish": 249, "muslim": 91, "black": 130, "white": 75, "psychiatric_or_mental_illness": 442,
+                            "pp": 101, "np": 13, "pn": 20, "nn": 1,
+                            "pp_male": 431, "np_male": 50, "pn_male": 17, "nn_male": 1,
+                            "pp_female": 384, "np_female": 39, "pn_female": 17, "nn_female": 1,
+                            "pp_homosexual_gay_or_lesbian": 900, "np_homosexual_gay_or_lesbian": 219, "pn_homosexual_gay_or_lesbian": 17, "nn_homosexual_gay_or_lesbian": 1,
+                            "pp_christian": 859, "np_christian": 54, "pn_christian": 17, "nn_christian": 1,
+                            "pp_jewish": 2365, "np_jewish": 278, "pn_jewish": 17, "nn_jewish": 1,
+                            "pp_muslim": 606, "np_muslim": 108, "pn_muslim": 17, "nn_muslim": 1,
+                            "pp_black": 586, "np_black": 167, "pn_black": 17, "nn_black": 1,
+                            "pp_white": 387, "np_white": 94, "pn_white": 17, "nn_white": 1,
+                            "pp_psychiatric_or_mental_illness": 2874, "np_psychiatric_or_mental_illness": 523, "pn_psychiatric_or_mental_illness": 17, "nn_psychiatric_or_mental_illness": 1}
+        else:
+            self.weight_dict = {"severe_toxicity": 1000, "obscene": 196, "identity_attack": 278, "insult": 22,
+                            "threat": 609, "male": 45, "female": 33, "homosexual_gay_or_lesbian": 198, "christian": 48,
+                            "jewish": 243, "muslim": 133, "black": 131, "white": 90, "psychiatric_or_mental_illness": 369,
+                            "pp": 107, "np": 13, "pn": 19, "nn": 1,
+                            "pp_male": 434, "np_male": 51, "pn_male": 17, "nn_male": 1,
+                            "pp_female": 324, "np_female": 37, "pn_female": 17, "nn_female": 1,
+                            "pp_homosexual_gay_or_lesbian": 1055, "np_homosexual_gay_or_lesbian": 244, "pn_homosexual_gay_or_lesbian": 17, "nn_homosexual_gay_or_lesbian": 1,
+                            "pp_christian": 986, "np_christian": 50, "pn_christian": 17, "nn_christian": 1,
+                            "pp_jewish": 2680, "np_jewish": 268, "pn_jewish": 16, "nn_jewish": 1,
+                            "pp_muslim": 772, "np_muslim": 161, "pn_muslim": 17, "nn_muslim": 1,
+                            "pp_black": 633, "np_black": 165, "pn_black": 17, "nn_black": 1,
+                            "pp_white": 465, "np_white": 111, "pn_white": 17, "nn_white": 1,
+                            "pp_psychiatric_or_mental_illness": 2748, "np_psychiatric_or_mental_illness": 427, "pn_psychiatric_or_mental_illness": 16, "nn_psychiatric_or_mental_illness": 1}
         self.stopwords = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
         self.seed_everything()
         self.max_len = 220
@@ -306,8 +330,8 @@ class Trainer:
         ]
         epoch_steps = int(self.train_len / self.base_batch_size / accumulation_steps)
         num_train_optimization_steps = int(self.epochs * epoch_steps)
-        valid_every = math.floor(epoch_steps / 10)
-        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
+        valid_every = math.floor(epoch_steps * accumulation_steps / 10)
+        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, schedule="warmup_cosine", t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
@@ -352,10 +376,10 @@ class Trainer:
                         valid_duration = int((time.time() - valid_start_time) / 60)
                         if epoch == 0 and stage == 1:
                             # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                            model_name = "model/model[bert][%d][%d][%d][%s][%dmin][%dmin][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
+                            model_name = "model/model_%d_%d_%d_%s_%dmin_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
                         else:
                             # model[bert][seed][epoch][stage][model_name][score].bin
-                            model_name = "model/model[bert][%d][%d][%d][%s][%.4f].bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
+                            model_name = "model/model_%d_%d_%d_%s_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.predict()
         # del 训练相关输入和模型

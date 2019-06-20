@@ -358,7 +358,7 @@ class Trainer:
             print("epoch: %d duration: %d min auc_score: %.4f" % (epoch, int((time.time() - start_time) / 60), auc_score))
             if not self.debug_mode:
                 state_dict = model.state_dict()
-                torch.save(state_dict, os.path.join(self.data_dir, "model/model[bert][%d][%s]_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
+                torch.save(state_dict, os.path.join(self.data_dir, "model/model_%d_%s_%d_%.5f" % (self.seed, self.model_name, epoch, auc_score)))
         # del 训练相关输入和模型
         training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
         for variable in training_history:

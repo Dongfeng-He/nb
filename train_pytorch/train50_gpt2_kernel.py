@@ -10,10 +10,10 @@ import numpy as np
 import time
 import math
 import gc
-from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
-from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
-from pytorch_pretrained_bert import BertConfig
-from pytorch_pretrained_bert.modeling import BertPreTrainedModel
+import sys
+from pytorch_pretrained_bert import GPT2Tokenizer, GPT2Model, OpenAIAdam
+from pytorch_pretrained_bert import GPT2Config
+from pytorch_pretrained_bert.modeling_gpt2 import GPT2PreTrainedModel
 from apex import amp
 from sklearn.metrics import roc_auc_score
 import shutil
@@ -73,50 +73,51 @@ class JigsawEvaluator:
         return overall_score + bias_score
 
 
-class BertNeuralNet(BertPreTrainedModel):
+class GPT2NeuralNet(GPT2PreTrainedModel):
     def __init__(self, config):
-        super(BertNeuralNet, self).__init__(config)
-        self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        dense_size = config.hidden_size
+        super(GPT2NeuralNet, self).__init__(config)
+        self.gpt2 = GPT2Model(config)
+        self.dropout = nn.Dropout(0.3)
+        dense_size = config.n_embd * 2
         # 全连接层
-        self.linear1 = nn.Linear(config.hidden_size, dense_size)
-        self.linear2 = nn.Linear(config.hidden_size, dense_size)
-        self.linear_gate = nn.Linear(config.hidden_size + dense_size, config.hidden_size)
+        self.linear1 = nn.Linear(config.n_embd * 2, dense_size)
+        self.linear2 = nn.Linear(config.n_embd * 2, dense_size)
+        self.linear_gate = nn.Linear(config.n_embd * 2 + dense_size, config.n_embd * 2)
         # 输出层
         self.linear_out = nn.Linear(dense_size, 1)
         self.linear_aux_out = nn.Linear(dense_size, 5)
         self.linear_identity_out = nn.Linear(dense_size, 9)
-        self.linear_identity_hidden = nn.Linear(config.hidden_size, dense_size)
-        self.bn1 = nn.BatchNorm1d(dense_size)
-        self.bn2 = nn.BatchNorm1d(dense_size)
-        self.apply(self.init_bert_weights)
+        self.linear_np_out = nn.Linear(dense_size, 4)
+        self.linear_identity_hidden = nn.Linear(config.n_embd * 2, dense_size)
+        self.apply(self.init_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-        bert_output = self.dropout(pooled_output)
+    def forward(self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None):
+        hidden_states, presents = self.gpt2(input_ids, position_ids, token_type_ids, past)
+        avg_pool = torch.mean(hidden_states, 1)
+        max_pool, _ = torch.max(hidden_states, 1)
+        h_conc = torch.cat((avg_pool, max_pool), 1)
+        gpt2_output = self.dropout(h_conc)
 
         # 全连接层
-        identity_hidden = self.linear_identity_hidden(bert_output)
+        identity_hidden = self.linear_identity_hidden(gpt2_output)
         identity_hidden = F.relu(identity_hidden)
         #identity_hidden = self.bn1(identity_hidden)
         identity_hidden = F.dropout(identity_hidden, p=0.3)
         identity_result = self.linear_identity_out(identity_hidden)
-        identity_hidden_conc = torch.cat((bert_output, identity_hidden), 1)
+        identity_hidden_conc = torch.cat((gpt2_output, identity_hidden), 1)
         gate_hidden = self.linear_gate(identity_hidden_conc)
         #gate_hidden = self.bn2(gate_hidden)
         gate = torch.sigmoid(gate_hidden)
         #gate = F.dropout(gate, p=0.3)
-        bert_output_gate = bert_output * gate
+        gpt2_output_gate = gpt2_output * gate
 
-        h_conc_linear1 = F.relu(self.linear1(bert_output_gate))
-        h_conc_linear2 = F.relu(self.linear2(bert_output_gate))
         # 拼接
-        hidden = bert_output_gate + h_conc_linear1 + h_conc_linear2
+        hidden = gpt2_output_gate
         # 输出层，用 sigmoid 就用 BCELoss，不用 sigmoid 就用 BCEWithLogitsLoss
         result = self.linear_out(hidden)
         aux_result = self.linear_aux_out(hidden)
-        out = torch.cat([result, aux_result, identity_result], 1)
+        np_result = self.linear_np_out(hidden)
+        out = torch.cat([result, aux_result, identity_result, np_result], 1)
         return out
 
 
@@ -143,7 +144,7 @@ class FocalLoss(nn.Module):
 
 
 class Trainer:
-    def __init__(self, model_name, epochs=1, batch_size=64, base_batch_size=32, part=1., half=2, last=True, seed=1234, debug_mode=False):
+    def __init__(self, model_name, epochs=1, batch_size=64, base_batch_size=32, part=1., half=1, last=True, seed=1234, debug_mode=False):
         self.device = torch.device('cuda')
         self.input_dir = "../input"
         self.work_dir = "../working/"
@@ -198,8 +199,8 @@ class Trainer:
             self.test_df = pd.read_csv(os.path.join("../input/jigsaw-unintended-bias-in-toxicity-classification/test.csv")).head(1000)
         self.train_len = int(len(self.train_df) * self.split_ratio)
         self.evaluator = self.init_evaluator()
-        #self.bert_config = BertConfig(os.path.join(self.data_dir, "uncased_L-12_H-768_A-12/bert_config.json"))
-        self.bert_model_path = '../input/bert-pretrained-models/uncased_l-12_h-768_a-12/uncased_L-12_H-768_A-12/'
+        self.gpt2_config = GPT2Config("../input/gpt2-models/config.json")
+        self.gpt2_model_path = '../input/gpt2-models/'
 
     def seed_everything(self):
         random.seed(self.seed)
@@ -218,14 +219,14 @@ class Trainer:
         evaluator = JigsawEvaluator(valid_y_true, valid_y_identity) # y_true 必须是0或1，不能是离散值
         return evaluator
 
-    def convert_lines(self, text_series, max_seq_length, bert_tokenizer):
+    def gpt2_convert_lines(self, text_series, max_seq_length, gpt2_tokenizer):
         max_seq_length -= 2
         all_tokens = []
         for text in text_series:
-            tokens = bert_tokenizer.tokenize(text)
+            tokens = gpt2_tokenizer.tokenize(text)
             if len(tokens) > max_seq_length:
                 tokens = tokens[:max_seq_length]
-            one_token = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + tokens + ["[SEP]"]) + [0] * (max_seq_length - len(tokens))
+            one_token = gpt2_tokenizer.convert_tokens_to_ids(tokens) + [0] * (max_seq_length - len(tokens))
             all_tokens.append(one_token)
         return np.array(all_tokens)
 
@@ -281,14 +282,14 @@ class Trainer:
 
         # tokenizer 训练
         print("Init tokenizer")
-        bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
+        gpt2_tokenizer = GPT2Tokenizer.from_pretrained(self.gpt2_model_path, cache_dir=None)
         print("Tokenizing")
-        train_bert_tokens = self.convert_lines(self.train_df["comment_text"].fillna("DUMMY_VALUE"), self.max_len, bert_tokenizer)
+        train_gpt2_tokens = self.gpt2_convert_lines(self.train_df["comment_text"].fillna("DUMMY_VALUE"), self.max_len, gpt2_tokenizer)
         # 划分训练集和验证集
-        valid_tokens = train_bert_tokens[self.train_len:]
+        valid_tokens = train_gpt2_tokens[self.train_len:]
         valid_label = train_label[self.train_len:]
         valid_type_labels = train_type_labels[self.train_len:]
-        train_tokens = train_bert_tokens[: int(self.train_len * 0.5)] if self.half == 1 else train_bert_tokens[int(self.train_len * 0.5): self.train_len]
+        train_tokens = train_gpt2_tokens[: int(self.train_len * 0.5)] if self.half == 1 else train_gpt2_tokens[int(self.train_len * 0.5): self.train_len]
         train_label = train_label[: int(self.train_len * 0.5)] if self.half == 1 else train_label[int(self.train_len * 0.5): self.train_len]
         train_type_labels = train_type_labels[: int(self.train_len * 0.5)] if self.half == 1 else train_type_labels[int(self.train_len * 0.5): self.train_len]
         valid_identity_type_labels = train_identity_type_labels[self.train_len:]
@@ -310,11 +311,13 @@ class Trainer:
         # 将符号化数据转成 tensor
         train_x_tensor = torch.tensor(train_tokens, dtype=torch.long)
         valid_x_tensor = torch.tensor(valid_tokens, dtype=torch.long)
-        train_y_tensor = torch.tensor(np.hstack([train_label[:, np.newaxis], train_type_labels, train_identity_type_labels]), dtype=torch.float32)
-        valid_y_tensor = torch.tensor(np.hstack([valid_label[:, np.newaxis], valid_type_labels, valid_identity_type_labels]), dtype=torch.float32)
+        train_y_tensor = torch.tensor(np.hstack([train_label[:, np.newaxis], train_type_labels, train_identity_type_labels, train_np_labels]), dtype=torch.float32)
+        valid_y_tensor = torch.tensor(np.hstack([valid_label[:, np.newaxis], valid_type_labels, valid_identity_type_labels, valid_np_labels]), dtype=torch.float32)
         target_weight_tensor = torch.tensor(target_weight, dtype=torch.float32)
         aux_weight_tensor = torch.tensor(aux_weight, dtype=torch.float32)
         identity_weight_tensor = torch.tensor(identity_weight, dtype=torch.float32)
+        np_weight_tensor = torch.tensor(np_weight, dtype=torch.float32)
+        np_identity_weight_tensor = torch.tensor(np_identity_weight, dtype=torch.float32)
         if torch.cuda.is_available():
             train_x_tensor = train_x_tensor.to(self.device)
             valid_x_tensor = valid_x_tensor.to(self.device)
@@ -323,8 +326,10 @@ class Trainer:
             target_weight_tensor = target_weight_tensor.to(self.device)
             aux_weight_tensor = aux_weight_tensor.to(self.device)
             identity_weight_tensor = identity_weight_tensor.to(self.device)
+            np_weight_tensor = np_weight_tensor.cuda()
+            np_identity_weight_tensor = np_identity_weight_tensor.cuda()
         # 将 tensor 转成 dataset，训练数据和标签一一对应，用 dataloader 加载的时候 dataset[:-1] 是 x，dataset[-1] 是 y
-        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor)
+        train_dataset = data.TensorDataset(train_x_tensor, train_y_tensor, target_weight_tensor, aux_weight_tensor, identity_weight_tensor, np_weight_tensor, np_identity_weight_tensor)
         valid_dataset = data.TensorDataset(valid_x_tensor, valid_y_tensor)
         # 将 dataset 转成 dataloader
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True)
@@ -390,29 +395,36 @@ class Trainer:
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
-    def custom_loss(self, y_pred, y_batch, epoch, target_weight=1., aux_weight=1., identity_weight=1.):
+    def custom_loss(self, y_pred, y_batch, epoch, target_weight=1., aux_weight=1., identity_weight=1., np_weight=1.):
         target_pred = y_pred[:, 0]
         target_true = y_batch[:, 0]
         aux_pred = y_pred[:, 1: 6]
         aux_true = y_batch[:, 1: 6]
-        identity_pred = y_pred[:, 6:]
-        identity_true = y_batch[:, 6:]
-        if epoch > 7:
+        identity_pred = y_pred[:, 6: 15]
+        identity_true = y_batch[:, 6: 15]
+        np_pred = y_pred[:, 15: 19]
+        np_true = y_batch[:, 15: 19]
+        if epoch > 9:
             target_loss = FocalLoss()(target_pred, target_true)
         else:
             target_loss = nn.BCEWithLogitsLoss(reduction="none")(target_pred, target_true)
         target_loss = torch.mean(target_loss * target_weight)
-        if epoch > 7:
+        if epoch > 9:
             aux_loss = FocalLoss()(aux_pred, aux_true)
         else:
             aux_loss = nn.BCEWithLogitsLoss(reduction="none")(aux_pred, aux_true)
         aux_loss = torch.mean(aux_loss * aux_weight)
-        if epoch > 7:
+        if epoch > 9:
             identity_loss = FocalLoss()(identity_pred, identity_true)
         else:
             identity_loss = nn.BCEWithLogitsLoss(reduction="none")(identity_pred, identity_true)
         identity_loss = torch.mean(identity_loss * identity_weight)
-        return target_loss, aux_loss, identity_loss
+        if epoch > 9:
+            np_loss = FocalLoss()(np_pred, np_true)
+        else:
+            np_loss = nn.BCEWithLogitsLoss(reduction="none")(np_pred, np_true)
+        np_loss = torch.mean(np_loss * np_weight)
+        return target_loss, aux_loss, identity_loss, np_loss
 
     def train(self):
         if self.debug_mode: self.epochs = 1
@@ -422,21 +434,12 @@ class Trainer:
         self.seed_everything()
         lr = 2e-5
         accumulation_steps = math.ceil(self.batch_size / self.base_batch_size)
-        # 预训练 bert 转成 pytorch
-        if os.path.exists(self.work_dir + 'pytorch_model.bin') is False:
-            print("Convert pre-trained model")
-            convert_tf_checkpoint_to_pytorch.convert_tf_checkpoint_to_pytorch(
-                self.bert_model_path + 'bert_model.ckpt',
-                self.bert_model_path + 'bert_config.json',
-                self.work_dir + 'pytorch_model.bin')
-        shutil.copyfile(self.bert_model_path + 'bert_config.json', self.work_dir + 'bert_config.json')
         # 加载预训练模型
-        print("Load checkpoint")
-        model = BertNeuralNet.from_pretrained(self.work_dir, cache_dir=None)
-        # TODO: 读取模型
-        model.load_state_dict(torch.load("../input/train45-bert-kernel/model_last.bin"))
+        print("Load pre-trained model")
+        model = GPT2NeuralNet.from_pretrained(self.gpt2_model_path, cache_dir=None)
         model.zero_grad()
         model = model.to(self.device)
+        """
         # 不同的参数组设置不同的 weight_decay
         param_optimizer = list(model.named_parameters())
         no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -444,10 +447,11 @@ class Trainer:
             {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
+        """
         epoch_steps = int(self.train_len * 0.5 / self.base_batch_size / accumulation_steps)
         num_train_optimization_steps = int(self.epochs * epoch_steps)
         valid_every = math.floor(epoch_steps * accumulation_steps / 5)
-        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=-1, t_total=-1)
+        optimizer = OpenAIAdam(model.parameters(), lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
@@ -458,19 +462,6 @@ class Trainer:
         best_auc_score_3 = 0
         best_auc_score_4 = 0
         f_log = open("train_log.txt", "w")
-
-        model.eval()
-        new_valid_loader = copy.deepcopy(valid_loader)
-        y_pred = np.zeros((len(self.train_df) - self.train_len))
-        for j, valid_batch_data in enumerate(new_valid_loader):
-            x_batch = valid_batch_data[0]
-            batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
-            y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
-        # 计算得分
-        auc_score = self.evaluator.get_final_metric(y_pred)
-        f_log.write("init auc_score: %.4f\n" % auc_score)
-        print("init auc_score: %.4f" % auc_score)
-
         for epoch in range(self.epochs):
             model.train()
             optimizer.zero_grad()
@@ -482,9 +473,11 @@ class Trainer:
                 target_weight_batch = batch_data[2]
                 aux_weight_batch = batch_data[3]
                 identity_weight_batch = batch_data[4]
-                y_pred = model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None)
-                target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
-                loss = target_loss + aux_loss + identity_loss
+                np_weight_batch = batch_data[5]
+                np_identity_weight_batch = batch_data[6]
+                y_pred = model(x_batch.to(self.device))
+                target_loss, aux_loss, identity_loss, np_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch, np_weight_batch)
+                loss = target_loss + aux_loss + identity_loss + np_loss
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
                 if (i + 1) % accumulation_steps == 0:
@@ -499,7 +492,7 @@ class Trainer:
                     y_pred = np.zeros((len(self.train_df) - self.train_len))
                     for j, valid_batch_data in enumerate(valid_loader):
                         x_batch = valid_batch_data[0]
-                        batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
+                        batch_y_pred = self.sigmoid(model(x_batch.to(self.device)).detach().cpu().numpy())[:, 0]
                         y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
                     # 计算得分
                     auc_score = self.evaluator.get_final_metric(y_pred)
@@ -529,13 +522,13 @@ class Trainer:
                 state_dict = model.state_dict()
                 torch.save(state_dict, "model_last.bin")
         # del 训练相关输入和模型
-        training_history = [train_loader, valid_loader, model, optimizer, param_optimizer, optimizer_grouped_parameters]
+        training_history = [train_loader, valid_loader, model, optimizer]
         for variable in training_history:
             del variable
         gc.collect()
 
 
 if __name__ == "__main__":
-    print("train45_bert_kernel_checkpoint.py")
-    trainer = Trainer("bert", epochs=1, batch_size=64, base_batch_size=32, part=1., half=2, last=True, seed=1234, debug_mode=False)
+    print("train50_gpt2_kernel.py")
+    trainer = Trainer("bert", epochs=1, batch_size=64, base_batch_size=32, part=1., half=1, last=True, seed=1234, debug_mode=False)
     trainer.train()

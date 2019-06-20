@@ -460,7 +460,7 @@ class Trainer:
         epoch_steps = int(self.train_len * 0.5 / self.base_batch_size / accumulation_steps)
         num_train_optimization_steps = int(self.epochs * epoch_steps)
         valid_every = math.floor(epoch_steps * accumulation_steps / 5)
-        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
+        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=-1, t_total=-1)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
@@ -471,6 +471,19 @@ class Trainer:
         best_auc_score_3 = 0
         best_auc_score_4 = 0
         f_log = open("train_log.txt", "w")
+
+        model.eval()
+        new_valid_loader = copy.deepcopy(valid_loader)
+        y_pred = np.zeros((len(self.train_df) - self.train_len))
+        for j, valid_batch_data in enumerate(new_valid_loader):
+            x_batch = valid_batch_data[0]
+            batch_y_pred = self.sigmoid(model(x_batch.to(self.device), attention_mask=(x_batch > 0).to(self.device), labels=None).detach().cpu().numpy())[:, 0]
+            y_pred[j * self.base_batch_size: (j + 1) * self.base_batch_size] = batch_y_pred
+        # 计算得分
+        auc_score = self.evaluator.get_final_metric(y_pred)
+        f_log.write("init auc_score: %.4f\n" % auc_score)
+        print("init auc_score: %.4f" % auc_score)
+
         for epoch in range(self.epochs):
             model.train()
             optimizer.zero_grad()

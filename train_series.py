@@ -139,9 +139,9 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     """
-    from train_bert.train2_simple_target_checkpoint import Trainer
-    print("start to train_bert: train2_simple_target_checkpoint")
-    trainer = Trainer(data_dir=data_dir, model_name="train2_simple_target_checkpoint", epochs=2, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=debug_mode)
+    from train_bert.train1_aux_identity_gate import Trainer
+    print("start to train_bert: train1_aux_identity_gate")
+    trainer = Trainer(data_dir=data_dir, model_name="train1_aux_identity_gate", epochs=2, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
