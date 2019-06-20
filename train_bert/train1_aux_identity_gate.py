@@ -16,6 +16,7 @@ from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 from apex import amp
+torch.backend.cudnn.benchmark = True
 
 
 class BertNeuralNet(BertPreTrainedModel):
@@ -331,7 +332,7 @@ class Trainer:
         epoch_steps = int(self.train_len / self.base_batch_size / accumulation_steps)
         num_train_optimization_steps = int(self.epochs * epoch_steps)
         valid_every = math.floor(epoch_steps * accumulation_steps / 10)
-        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, schedule="warmup_cosine", t_total=num_train_optimization_steps)
+        optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
