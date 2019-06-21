@@ -335,7 +335,7 @@ class Trainer:
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
                     optimizer.zero_grad()
-                # 验证
+                # 验
                 if (i + 1) % valid_every == 0:
                     valid_start_time = time.time()
                     model.eval()
