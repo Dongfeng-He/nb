@@ -329,7 +329,7 @@ class Trainer:
                 x_mask = batch_data[5]
                 y_pred = model(x_batch, attention_mask=x_mask, labels=None)
                 target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
-                loss = target_loss + aux_loss + identity_loss
+                loss = (target_loss + aux_loss + identity_loss) / 3
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
                 if (i + 1) % accumulation_steps == 0:
