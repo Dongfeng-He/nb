@@ -15,7 +15,7 @@ from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
 from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
-#from apex import amp
+from apex import amp
 
 
 class BertNeuralNet(BertPreTrainedModel):
@@ -313,7 +313,7 @@ class Trainer:
         optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, schedule="warmup_cosine", t_total=num_train_optimization_steps)
         # 渐变学习速率
         #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
-        #model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
         # 开始训练
         for epoch in range(self.epochs):
             train_start_time = time.time()
@@ -330,7 +330,8 @@ class Trainer:
                 y_pred = model(x_batch, attention_mask=x_mask, labels=None)
                 target_loss, aux_loss, identity_loss = self.custom_loss(y_pred, y_batch, epoch, target_weight_batch, aux_weight_batch, identity_weight_batch)
                 loss = target_loss + aux_loss + identity_loss
-                loss.backward()
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
                     optimizer.zero_grad()
