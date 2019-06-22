@@ -327,6 +327,7 @@ class Trainer:
             target_weight += self.train_df["target"] * np.where((~self.train_df[self.identity_list]).sum(axis=1) > 0, 1, 0) * 3
         target_weight /= target_weight.mean()
         # 只留训练集
+        target_weight = np.array(target_weight)
         target_weight = target_weight[:self.train_len]
         aux_weight = aux_weight[:self.train_len, :]
         identity_weight = identity_weight[:self.train_len, :]
