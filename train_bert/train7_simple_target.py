@@ -428,7 +428,7 @@ class Trainer:
                         valid_duration = int((time.time() - valid_start_time) / 60)
                         train_start_time = time.time()
                         # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                        model_name = "model2/model_%d_%d_%d_%s_%dmin_%dmin_%.4f.bin" % (self.seed, epoch + 1, stage, self.model_name, train_duration, valid_duration, auc_score)
+                        model_name = "model2/model_%s_%d_%d_%d_%dmin_%dmin_%.4f.bin" % (self.model_name, self.seed, epoch + 1, stage, train_duration, valid_duration, auc_score)
                         torch.save(state_dict, os.path.join(self.data_dir, model_name))
                     model.train()
         # del 训练相关输入和模型

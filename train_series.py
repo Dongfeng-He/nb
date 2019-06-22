@@ -3,7 +3,7 @@ import time
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data"
-    debug_mode = True
+    debug_mode = False
     """
     from train_keras.train1_original import Trainer
     print("start to train_keras: train1_original")
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     from train_bert.train8_aux_weight import Trainer
     print("start to train_bert: train8_aux_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train8_aux_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train8_aux_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     from train_bert.train8_aux_no_weight import Trainer
     print("start to train_bert: train8_aux_no_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train8_aux_no_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train8_aux_no_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     from train_bert.train9_identity_no_weight import Trainer
     print("start to train_bert: train9_identity_no_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train9_identity_no_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train9_identity_no_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     from train_bert.train9_identity_weight import Trainer
     print("start to train_bert: train9_identity_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train9_identity_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train9_identity_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     from train_bert.train10_np_no_weight import Trainer
     print("start to train_bert: train10_np_no_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train10_np_no_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train10_np_no_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     from train_bert.train10_np_weight import Trainer
     print("start to train_bert: train10_np_weight")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train10_np_weight", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train10_np_weight", epochs=3, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
