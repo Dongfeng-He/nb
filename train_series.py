@@ -141,7 +141,7 @@ if __name__ == "__main__":
     """
     from train_bert.train6_np_task import Trainer
     print("start to train_bert: train6_np_task")
-    debug_mode = True
+    #debug_mode = True
     trainer = Trainer(data_dir=data_dir, model_name="train6_np_task", epochs=5, batch_size=48, base_batch_size=24, part=0.3, seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
