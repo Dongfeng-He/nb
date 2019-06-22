@@ -139,9 +139,10 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     """
-    from train_bert.train4_aux_identity import Trainer
-    print("start to train_bert: train4_aux_identity")
-    trainer = Trainer(data_dir=data_dir, model_name="train4_aux_identity", epochs=3, batch_size=48, base_batch_size=24, part=1., seed=1234, debug_mode=debug_mode)
+    from train_bert.train5_np_task import Trainer
+    print("start to train_bert: train5_np_task")
+    debug_mode = True
+    trainer = Trainer(data_dir=data_dir, model_name="train5_np_task", epochs=3, batch_size=48, base_batch_size=24, part=1., seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
