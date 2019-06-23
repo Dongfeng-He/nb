@@ -455,5 +455,5 @@ class Trainer:
 
 if __name__ == "__main__":
     data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/"
-    trainer = Trainer(data_dir, "model_name", debug_mode=True)
+    trainer = Trainer(data_dir, "model_name1", debug_mode=True)
     trainer.train()
