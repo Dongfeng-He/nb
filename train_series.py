@@ -139,10 +139,27 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     """
+    from train_bert.train9_identity_weight import Trainer
+
+    print("start to train_bert: train9_identity_weight")
+    # debug_mode = True
+    trainer = Trainer(data_dir=data_dir, model_name="train9_identity_weight", epochs=3, batch_size=64, base_batch_size=32,
+                      part=1., seed=42, debug_mode=True)
+    trainer.train()
+    del trainer
+    gc.collect()
+
+
+
+
+
+
+
+
     from train_bert.train11_np_task import Trainer
     print("start to train_bert: train11_np_task")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train11_np_task", epochs=3, batch_size=64, base_batch_size=32, part=1., seed=42, debug_mode=True)
+    trainer = Trainer(data_dir=data_dir, model_name="train11_np_task", epochs=3, batch_size=64, base_batch_size=32, part=1., seed=42, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
