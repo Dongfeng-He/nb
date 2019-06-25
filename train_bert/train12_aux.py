@@ -110,7 +110,7 @@ class Trainer:
         self.epochs = epochs
         self.base_batch_size = base_batch_size
         self.batch_size = batch_size
-        self.split_ratio = 0.80
+        self.split_ratio = 0.90
         self.sample_num = 1804874
         if not self.debug_mode:
             self.train_df = pd.read_csv(os.path.join(self.data_dir, "train.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
