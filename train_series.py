@@ -139,6 +139,7 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     """
+    # d
     from train_bert.train12_aux import Trainer
     print("start to train_bert: train12_aux")
     debug_mode = True
