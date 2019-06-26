@@ -204,7 +204,7 @@ class Predictor:
         self.epochs = epochs
         self.base_batch_size = base_batch_size
         self.batch_size = batch_size
-        self.split_ratio = 0.90
+        self.split_ratio = 0.95
         self.sample_num = 1804874
         if not self.debug_mode:
             self.train_df = pd.read_csv(os.path.join("/root/nb/data/train.csv")).sample(int(self.sample_num * part), random_state=1234).fillna(0.)
@@ -475,5 +475,5 @@ class Predictor:
 
 if __name__ == "__main__":
     print("train50_bnew_simple_target_inference_blend_test_2.py")
-    predictor = Predictor("bert", epochs=1, batch_size=64, base_batch_size=32, part=1., half=2, seed=1234, debug_mode=True)
+    predictor = Predictor("bert", epochs=1, batch_size=64, base_batch_size=32, part=1., half=2, seed=1234, debug_mode=False)
     predictor.predict()
