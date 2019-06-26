@@ -350,7 +350,7 @@ class Trainer:
         return target_loss, aux_loss, identity_loss, np_loss
 
     def train(self):
-        if self.debug_mode: self.epochs = 1
+        if self.debug_mode: self.epochs = 2
         # 加载 dataloader
         train_loader, valid_loader = self.create_dataloader()
         # 训练
