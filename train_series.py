@@ -139,21 +139,14 @@ if __name__ == "__main__":
     del trainer
     gc.collect()
     """
-    from train_bert.train12_aux import Trainer
-    print("start to train_bert: train12_aux")
+    from train_bert.train13_aux_mean import Trainer
+    print("start to train_bert: train13_aux_mean")
     #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train12_aux_new", epochs=2, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=debug_mode)
+    trainer = Trainer(data_dir=data_dir, model_name="train13_aux_mean", epochs=2, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=debug_mode)
     trainer.train()
     del trainer
     gc.collect()
 
-    from train_bert.train11_np_task import Trainer
-    print("start to train_bert: train11_np_task")
-    #debug_mode = True
-    trainer = Trainer(data_dir=data_dir, model_name="train11_np_task", epochs=2, batch_size=64, base_batch_size=32, part=1., seed=1234, debug_mode=debug_mode)
-    trainer.train()
-    del trainer
-    gc.collect()
 
 
 
