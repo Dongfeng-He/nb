@@ -1355,7 +1355,7 @@ class Trainer:
                     optimizer.step()
                     optimizer.zero_grad()
             # 只在复数 epoch 进行验证
-            if epoch % 2 != 0: continue
+            # if epoch % 2 != 0: continue
             # 开始验证
             valid_start_time = time.time()
             model.eval()
@@ -1417,7 +1417,7 @@ class Trainer:
             f_log.write(eval_result + "\n")
             f_log.flush()
             save_start_time = time.time()
-            """
+
             if not self.debug_mode and score > best_score:
                 best_score = score
                 state_dict = model.state_dict()
@@ -1427,7 +1427,7 @@ class Trainer:
                 torch.save(state_dict, model_name)
                 print("model save duration: %d min" % int((time.time() - save_start_time) / 60))
                 f_log.write("model save duration: %d min\n" % int((time.time() - save_start_time) / 60))
-            """
+
             model.train()
         f_log.close()
         # del 训练相关输入和模型
