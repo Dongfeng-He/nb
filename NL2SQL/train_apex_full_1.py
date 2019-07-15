@@ -1434,4 +1434,6 @@ if __name__ == "__main__":
     data_dir = "/root/nb/data/nl2sql_data"
     trainer = Trainer(data_dir, "model_name", epochs=12, batch_size=32, base_batch_size=32, max_len=120, part=1, debug_mode=False)
     trainer.train()
+    os.system("sudo init 0")
+
 
