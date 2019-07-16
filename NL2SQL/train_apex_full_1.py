@@ -1354,6 +1354,7 @@ class Trainer:
                     optimizer.step()
                     optimizer.zero_grad()
             # 开始验证
+            if (epoch + 1) % 2 != 0 or (epoch + 1) < 10: continue
             valid_start_time = time.time()
             model.eval()
             tag_logits_list = []
@@ -1430,8 +1431,11 @@ class Trainer:
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=12, batch_size=32, base_batch_size=32, max_len=120, part=1, debug_mode=False)
-    trainer.train()
+    trainer = Trainer(data_dir, "model_name", epochs=30, batch_size=64, base_batch_size=64, max_len=120, part=1, debug_mode=False)
+    try:
+        trainer.train()
+    except:
+        pass
     os.system("sudo init 0")
 
 

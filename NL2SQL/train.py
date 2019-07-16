@@ -1,6 +1,4 @@
 import os
-import pandas as pd
-from evaluation import *
 import random
 import copy
 import torch

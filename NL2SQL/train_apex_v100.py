@@ -1355,7 +1355,7 @@ class Trainer:
                     optimizer.step()
                     optimizer.zero_grad()
             # 只在复数 epoch 进行验证
-            # if epoch % 2 != 0: continue
+            if (epoch + 1) % 2 != 0 or (epoch + 1) < 10: continue
             # 开始验证
             valid_start_time = time.time()
             model.eval()
@@ -1439,7 +1439,7 @@ class Trainer:
 
 if __name__ == "__main__":
     data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=32, base_batch_size=32, max_len=120, part=1, debug_mode=False)
+    trainer = Trainer(data_dir, "model_name", epochs=30, batch_size=64, base_batch_size=64, max_len=120, part=1, debug_mode=False)
     time1 = time.time()
     trainer.train()
     print("训练时间: %d min" % int((time.time() - time1) / 60))
