@@ -1399,7 +1399,7 @@ class Predictor:
         # 训练
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
-        model.load_state_dict(torch.load("/root/nb/data/nl2sql_data/my_model.bin"))
+        model.load_state_dict(torch.load("/root/nb/NL2SQL/my_model.bin"))
         model = model.to(self.device) if torch.cuda.is_available() else model
         for param in model.parameters():
             param.requires_grad = False
