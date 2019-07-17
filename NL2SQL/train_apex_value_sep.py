@@ -1530,7 +1530,8 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
+    # data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
+    data_dir = "/root/nb/data/nl2sql_data"
     trainer = Trainer(data_dir, "model_name", epochs=16, batch_size=32, base_batch_size=32, max_len=200, part=1, debug_mode=False)
     time1 = time.time()
     try:
