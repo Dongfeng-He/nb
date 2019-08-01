@@ -1784,8 +1784,9 @@ if __name__ == "__main__":
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
         data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=200, part=1, debug_mode=True)
+    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=200, part=1, debug_mode=False)
     time1 = time.time()
+    """
     trainer.train()
     """
     try:
@@ -1794,4 +1795,4 @@ if __name__ == "__main__":
         pass
     os.system("sudo init 0")
     print("训练时间: %d min" % int((time.time() - time1) / 60))
-    """
+
