@@ -20,6 +20,69 @@ import json
 from sklearn.metrics import *
 
 
+class MatrixAttentionLayer(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(MatrixAttentionLayer, self).__init__()
+        self.linear_layer = nn.Linear(input_size, hidden_size, bias=False)
+
+    def mask_and_acv(self, output, output_mask):
+        # 对 output mask，然后求 Relu(WX)
+        batch_size, output_len, hidden_size = output.shape
+        output_mask = output_mask.unsqueeze(2).repeat(1, 1, hidden_size).view(batch_size, output_len, hidden_size)
+        output = torch.mul(output, output_mask)
+        output = F.relu(self.linear_layer(output))
+        return output
+
+    def forward(self, seq_output, seq_mask, target_output, target_mask):
+        batch_size, seq_len, hidden_size = seq_output.shape
+        batch_size, target_len, hidden_size = target_output.shape
+        seq_mask = seq_mask.float()
+        target_mask = target_mask.float()
+        # 对 seq_output 和 target_output 都 mask，并 Relu
+        seq_output_transformed = self.mask_and_acv(seq_output, seq_mask)
+        target_output_transformed = self.mask_and_acv(target_output, target_mask)
+        # seq_output_transformed 和 target_output_transformed 每一列两两点乘（处理成矩阵相乘），最后一个维度扩展成 hidden_size，最后是 (batch_size, seq_len, target_len, hidden_size)
+        attention_matrix = torch.matmul(seq_output_transformed, target_output_transformed.transpose(2, 1))
+        attention_matrix = F.softmax(attention_matrix.float(), dim=2)
+        attention_matrix_unsqueeze = attention_matrix.unsqueeze(3).repeat(1, 1, 1, hidden_size)
+        # 将 target_output 第二个维度 repeat seq_len，(batch_size, target_len, hidden_size) -> (batch_size, seq_len, target_len, hidden_size)，和注意力矩阵相乘后对第三个维度求sum
+        target_output_unsqueeze = target_output.unsqueeze(1).repeat(1, seq_len, 1, 1)
+        attention_output_unsqueeze = torch.mul(target_output_unsqueeze, attention_matrix_unsqueeze)
+        attention_output = torch.sum(attention_output_unsqueeze, 2)
+        # attention_output 拼接 seq_output，再用 seq_mask mask 一遍
+        cat_output = torch.cat([seq_output, attention_output], 2)
+        cat_mask = seq_mask.unsqueeze(2).repeat(1, 1, hidden_size * 2).view(batch_size, seq_len, hidden_size * 2)
+        cat_output = torch.mul(cat_output, cat_mask)
+        return cat_output, attention_output
+
+
+class ColAttentionLayer(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(ColAttentionLayer, self).__init__()
+        self.linear_layer = nn.Linear(input_size, hidden_size, bias=False)
+
+    def mask_and_acv(self, output, output_mask):
+        # 对 output mask，然后求 Relu(WX)
+        batch_size, output_len, hidden_size = output.shape
+        output_mask = output_mask.unsqueeze(2).repeat(1, 1, hidden_size).view(batch_size, output_len, hidden_size)
+        output = torch.mul(output, output_mask)
+        output = F.relu(self.linear_layer(output))
+        return output
+
+    def forward(self, col_output, target_output, target_mask):
+        batch_size, target_len, hidden_size = target_output.shape
+        target_mask = target_mask.float()
+        col_output_transformed = F.relu(self.linear_layer(col_output))
+        target_output_transformed = self.mask_and_acv(target_output, target_mask)
+        attention_matrix = torch.matmul(col_output_transformed.unsqueeze(1), target_output_transformed.transpose(2, 1)).squeeze(1)
+        attention_matrix = F.softmax(attention_matrix.float(), dim=1)
+        attention_matrix_unsqueeze = attention_matrix.unsqueeze(2).repeat(1, 1, hidden_size)
+        attention_output_unsqueeze = torch.mul(target_output, attention_matrix_unsqueeze)
+        attention_output = torch.sum(attention_output_unsqueeze, 1)
+        cat_output = torch.cat([col_output, attention_output], 1)
+        return cat_output, attention_output
+
+
 class ValueOptimizer:
     @staticmethod
     def num_completion(value, question, start_index, end_index, value_start_index, value_end_index, num_type):
@@ -643,11 +706,14 @@ class QuestionMatcher:
 class BertNeuralNet(BertPreTrainedModel):
     def __init__(self, config):
         super(BertNeuralNet, self).__init__(config)
-        self.num_tag_labels = 5
+        self.num_tag_labels = 2
         self.num_agg_labels = 6
         self.num_connection_labels = 3
         self.num_con_num_labels = 4
         self.num_type_labels = 3
+        self.num_sel_num_labels = 4  # {1, 2, 3}
+        self.num_where_num_labels = 5  # {1, 2, 3, 4}
+        self.num_op_labels = 4
 
         op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "不选中"}
         agg_sql_dict = {0: "", 1: "AVG", 2: "MAX", 3: "MIN", 4: "COUNT", 5: "SUM"}
@@ -656,22 +722,35 @@ class BertNeuralNet(BertPreTrainedModel):
         type_dict = {0: "sel", 1: "con", 2: "none"}
         self.hidden_size = config.hidden_size
 
-        self.bilstm = nn.LSTM(self.hidden_size, int(self.hidden_size / 2), bidirectional=True, batch_first=True)
-        self.bilstm2 = nn.LSTM(self.hidden_size, self.hidden_size, bidirectional=True, batch_first=True)
-
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.linear_tag = nn.Linear(self.hidden_size * 2, self.num_tag_labels)
+        self.linear_tag = nn.Linear(self.hidden_size * 3, self.num_tag_labels)
         self.linear_agg = nn.Linear(self.hidden_size * 2, self.num_agg_labels)
-        self.linear_connection = nn.Linear(self.hidden_size * 2, self.num_connection_labels)
+        self.linear_connection = nn.Linear(self.hidden_size, self.num_connection_labels)
         self.linear_con_num = nn.Linear(self.hidden_size * 2, self.num_con_num_labels)
         self.linear_type = nn.Linear(self.hidden_size * 2, self.num_type_labels)
+        self.linear_sel_num = nn.Linear(self.hidden_size, self.num_sel_num_labels)
+        self.linear_where_num = nn.Linear(self.hidden_size, self.num_where_num_labels)
+        self.values_attention = MatrixAttentionLayer(self.hidden_size, self.hidden_size)
+        self.head_attention = ColAttentionLayer(self.hidden_size, self.hidden_size)
+        self.linear_op = nn.Linear(self.hidden_size * 2, self.num_op_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, attention_mask, all_masks, header_masks, question_masks, value_masks, cls_index_list, train_dependencies=None):
+    def forward(self, input_ids, attention_mask, all_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_index_list, train_dependencies=None):
         sequence_output, _ = self.bert(input_ids, None, attention_mask, output_all_encoded_layers=False)
-        sequence_output, _ = self.bilstm(sequence_output)
-        sequence_output, _ = self.bilstm2(sequence_output)
+
+        device = "cuda" if torch.cuda.is_available() else None
+        type_masks = all_masks.view(-1) == 1
+        # TODO: 如果是求平均值就计算每行mask总和，mask，每行相加除以每行总和
+        cls_output = sequence_output[type_masks, cls_index_list[type_masks], :]
+        _, subheader_attention = self.head_attention(cls_output, sequence_output, subheader_masks)
+        cat_cls = torch.cat([cls_output, subheader_attention], 1)
+
+        cat_output, _ = self.values_attention(sequence_output, question_masks, sequence_output, value_masks)
+        _, header_attention = self.values_attention(sequence_output, question_masks, sequence_output, header_masks)
+        cat_output = torch.cat([cat_output, header_attention], 2)
+
+        num_output = sequence_output[type_masks, 0, :]
         if train_dependencies:
             tag_masks = train_dependencies[0].view(-1) == 1      # 必须要加 view 和 == 1
             sel_masks = train_dependencies[1].view(-1) == 1
@@ -682,16 +761,21 @@ class BertNeuralNet(BertPreTrainedModel):
             tag_labels = train_dependencies[5]
             con_num_labels = train_dependencies[6]
             type_labels = train_dependencies[7]
+            sel_num_labels = train_dependencies[8]
+            where_num_labels = train_dependencies[9]
+            op_labels = train_dependencies[10]
             # mask 后的 bert_output
-            tag_output = sequence_output.contiguous().view(-1, self.hidden_size * 2)[tag_masks]
+            tag_output = cat_output.contiguous().view(-1, self.hidden_size * 3)[tag_masks]
             tag_labels = tag_labels.view(-1)[tag_masks]
-            agg_output = sequence_output[sel_masks, cls_index_list[sel_masks], :]
+            agg_output = cat_cls[sel_masks, :]
             agg_labels = agg_labels[sel_masks]
             connection_output = sequence_output[con_masks, 0, :]
             connection_labels = connection_labels[con_masks]
-            con_num_output = sequence_output[con_masks, cls_index_list[con_masks], :]
+            con_num_output = cat_cls[con_masks, :]
             con_num_labels = con_num_labels[con_masks]
-            type_output = sequence_output[type_masks, cls_index_list[type_masks], :]
+            op_output = cat_cls[con_masks, :]
+            op_labels = op_labels[con_masks]
+            type_output = cat_cls[type_masks, :]
             type_labels = type_labels[type_masks]
             # 全连接层
             tag_output = self.linear_tag(self.dropout(tag_output))
@@ -699,6 +783,9 @@ class BertNeuralNet(BertPreTrainedModel):
             connection_output = self.linear_connection(self.dropout(connection_output))
             con_num_output = self.linear_con_num(self.dropout(con_num_output))
             type_output = self.linear_type(self.dropout(type_output))
+            sel_num_output = self.linear_sel_num(self.dropout(num_output))
+            where_num_output = self.linear_where_num(self.dropout(num_output))
+            op_output = self.linear_op(self.dropout(op_output))
             # 损失函数
             loss_function = nn.CrossEntropyLoss(reduction="mean")
             tag_loss = loss_function(tag_output, tag_labels)
@@ -706,29 +793,49 @@ class BertNeuralNet(BertPreTrainedModel):
             connection_loss = loss_function(connection_output, connection_labels)
             con_num_loss = loss_function(con_num_output, con_num_labels)
             type_loss = loss_function(type_output, type_labels)
-            loss = tag_loss + agg_loss + connection_loss + con_num_loss + type_loss
+            sel_num_loss = loss_function(sel_num_output, sel_num_labels)
+            where_num_loss = loss_function(where_num_output, where_num_labels)
+            op_loss = loss_function(op_output, op_labels)
+            loss = tag_loss + agg_loss + connection_loss + con_num_loss + type_loss + sel_num_loss + where_num_loss + op_loss
             return loss
         else:
             all_masks = all_masks.view(-1) == 1
             batch_size, seq_len, hidden_size = sequence_output.shape
-            tag_output = torch.zeros(batch_size, seq_len, hidden_size, dtype=torch.float32, device='cuda')
+            tag_output = torch.zeros(batch_size, seq_len, hidden_size * 3, dtype=torch.float32, device=device)
             for i in range(batch_size):
                 for j in range(seq_len):
                     if attention_mask[i][j] == 1:
-                        tag_output[i][j] = sequence_output[i][j]
+                        tag_output[i][j] = cat_output[i][j]
             head_output = sequence_output[:, 0, :]
-            cls_output = sequence_output[all_masks, cls_index_list, :]
+            # cls_output = sequence_output[all_masks, cls_index_list, :]
             tag_output = self.linear_tag(self.dropout(tag_output))
-            agg_output = self.linear_agg(self.dropout(cls_output))
+            agg_output = self.linear_agg(self.dropout(cat_cls))
             connection_output = self.linear_connection(self.dropout(head_output))
-            con_num_output = self.linear_con_num(self.dropout(cls_output))
-            type_output = self.linear_type(self.dropout(cls_output))
+            con_num_output = self.linear_con_num(self.dropout(cat_cls))
+            type_output = self.linear_type(self.dropout(cat_cls))
+            sel_num_output = self.linear_sel_num(self.dropout(num_output))
+            where_num_output = self.linear_where_num(self.dropout(num_output))
+            op_output = self.linear_op(self.dropout(cat_cls))
+
+            tag_probs = F.log_softmax(tag_output, dim=2).detach().cpu().numpy().tolist()
+            agg_probs = F.log_softmax(agg_output, dim=1).detach().cpu().numpy().tolist()
+            connection_probs = F.log_softmax(connection_output, dim=1).detach().cpu().numpy().tolist()
+            con_num_probs = F.log_softmax(con_num_output, dim=1).detach().cpu().numpy().tolist()
+            type_probs = F.log_softmax(type_output, dim=1).detach().cpu().numpy().tolist()
+            sel_num_probs = F.log_softmax(sel_num_output, dim=1).detach().cpu().numpy().tolist()
+            where_num_probs = F.log_softmax(where_num_output, dim=1).detach().cpu().numpy().tolist()
+            op_probs = F.log_softmax(op_output, dim=1).detach().cpu().numpy().tolist()
+
             tag_logits = torch.argmax(F.log_softmax(tag_output, dim=2), dim=2).detach().cpu().numpy().tolist()
             agg_logits = torch.argmax(F.log_softmax(agg_output, dim=1), dim=1).detach().cpu().numpy().tolist()
             connection_logits = torch.argmax(F.log_softmax(connection_output, dim=1), dim=1).detach().cpu().numpy().tolist()
             con_num_logits = torch.argmax(F.log_softmax(con_num_output, dim=1), dim=1).detach().cpu().numpy().tolist()
             type_logits = torch.argmax(F.log_softmax(type_output, dim=1), dim=1).detach().cpu().numpy().tolist()
-            return tag_logits, agg_logits, connection_logits, con_num_logits, type_logits
+            sel_num_logits = torch.argmax(F.log_softmax(sel_num_output, dim=1), dim=1).detach().cpu().numpy().tolist()
+            where_num_logits = torch.argmax(F.log_softmax(where_num_output, dim=1), dim=1).detach().cpu().numpy().tolist()
+            op_logits = torch.argmax(F.log_softmax(op_output, dim=1), dim=1).detach().cpu().numpy().tolist()
+
+            return tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits
 
 
 class FocalLoss(nn.Module):
@@ -754,7 +861,7 @@ class FocalLoss(nn.Module):
 
 
 class Trainer:
-    def __init__(self, data_dir, model_name, epochs=1, batch_size=64, base_batch_size=32, max_len=200, part=1., seed=1234, debug_mode=False):
+    def __init__(self, data_dir, model_name, epochs=1, batch_size=64, base_batch_size=32, max_len=120, part=1., seed=1234, debug_mode=False):
         self.device = torch.device('cuda')
         self.data_dir = data_dir
         self.debug_mode = debug_mode
@@ -793,7 +900,7 @@ class Trainer:
         data_list = []
         with open(path, "r") as f:
             for i, line in enumerate(f):
-                if self.debug_mode and i == 10: break
+                if self.debug_mode and i == 20: break
                 sample = json.loads(line)
                 data_list.append(sample)
         if num and not self.debug_mode:
@@ -845,12 +952,15 @@ class Trainer:
         table_title = table_dict[table_id]["title"]
         table_header_list = table_dict[table_id]["header"]
         table_row_list = table_dict[table_id]["rows"]
+
         col_dict = {header_name: set() for header_name in table_header_list}
         for row in table_row_list:
             for col, value in enumerate(row):
                 header_name = table_header_list[col]
                 col_dict[header_name].add(str(value))
 
+        sel_num = len(sel_list)
+        where_num = len(con_list)
         sel_dict = {sel: agg for sel, agg in zip(sel_list, agg_list)}
         # <class 'list'>: [[0, 2, '大黄蜂'], [0, 2, '密室逃生']] 一列两value 多一个任务判断where一列的value数, con_dict里面的数量要喝conds匹配，否则放弃这一列（但也不能作为非con非sel训练）
         # 标注只能用多分类？有可能对应多个
@@ -886,6 +996,11 @@ class Trainer:
         cls_index_list = []
         header_question_list = []
         header_table_id_list = []
+        subheader_cls_list = []
+        subheader_masks = []
+        sel_num_labels = []
+        where_num_labels = []
+        op_labels = []
 
         question_tokens = bert_tokenizer.tokenize(question)
         question_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + question_tokens + ["[SEP]"])
@@ -900,10 +1015,30 @@ class Trainer:
             header_mask = self.create_mask(max_len=self.max_len, start_index=len(question_ids) + 1, mask_len=len(header_tokens))
 
             conc_ids = question_ids + header_ids
-            value_start_index = len(conc_ids)
-            for value in value_set:
+            subheader_cls_index = len(conc_ids)
+            subheader_start_index = len(conc_ids) + 1
+            random.seed(col)
+            for i, sub_header in enumerate(random.sample(table_header_list, len(table_header_list))):
+                subheader_tokens = bert_tokenizer.tokenize(sub_header)
+                if i == 0:
+                    subheader_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + subheader_tokens + ["[SEP]"])
+                else:
+                    subheader_ids = bert_tokenizer.convert_tokens_to_ids(subheader_tokens + ["[SEP]"])
+                if len(conc_ids) + len(subheader_ids) <= self.max_len:
+                    conc_ids += subheader_ids
+            subheader_mask_len = len(conc_ids) - subheader_start_index - 1
+            subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index, mask_len=subheader_mask_len)
+            # attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
+            # conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
+
+            value_cls_index = len(conc_ids)
+            value_start_index = len(conc_ids) + 1
+            for i, value in enumerate(value_set):
                 value_tokens = bert_tokenizer.tokenize(value)
-                value_ids = bert_tokenizer.convert_tokens_to_ids(value_tokens + ["[SEP]"])
+                if i == 0:
+                    value_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + value_tokens + ["[SEP]"])
+                else:
+                    value_ids = bert_tokenizer.convert_tokens_to_ids(value_tokens + ["[SEP]"])
                 if len(conc_ids) + len(value_ids) <= self.max_len:
                     conc_ids += value_ids
             value_mask_len = len(conc_ids) - value_start_index - 1
@@ -911,15 +1046,20 @@ class Trainer:
             attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
             conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
 
-            tag_ids = [4] * len(conc_ids)  # 4 是不标注
+            # TODO: [4] 改成了 [0]
+            tag_ids = [0] * len(conc_ids)  # 4 是不标注
+
+            op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "不选中"}
+
             sel_mask, con_mask, type_mask = 0, 0, 1
-            connection_id, agg_id, con_num = 0, 0, 0
+            connection_id, agg_id, con_num, op = 0, 0, 0, 2
             if col in con_dict:
                 # 如果 header 对应多个 values，values 必须全部匹配上才进入训练
                 if list(map(lambda x: x[0], con_list)).count(col) != len(con_dict[col]): continue
                 header_con_list = con_dict[col]
                 for [op, value, index] in header_con_list:
-                    tag_ids[index + 1: index + 1 + len(value)] = [op] * len(value)
+                    # TODO: [op] 改成了 [1]
+                    tag_ids[index + 1: index + 1 + len(value)] = [1] * len(value)
                 tag_mask = [0] + [1] * len(question) + [0] * (self.max_len - len(question) - 1)
                 con_mask = 1
                 connection_id = connection
@@ -950,8 +1090,14 @@ class Trainer:
             header_table_id_list.append(table_id)
             header_masks.append(header_mask)
             question_masks.append(question_mask)
+            subheader_cls_list.append(subheader_cls_index)
+            subheader_masks.append(subheader_mask)
+            sel_num_labels.append(sel_num)
+            where_num_labels.append(where_num)
+            op_labels.append(op)
             value_masks.append(value_mask)
-        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, value_masks
+
+        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks
 
     def create_dataloader(self):
         """
@@ -989,6 +1135,11 @@ class Trainer:
         train_header_table_id_list = []
         train_header_masks = []
         train_question_masks = []
+        train_subheader_cls_list = []
+        train_subheader_masks = []
+        train_sel_num_labels = []
+        train_where_num_labels = []
+        train_op_labels = []
         train_value_masks = []
         for sample in train_data_list:
             processed_result = self.process_sample(sample, train_table_dict, bert_tokenizer)
@@ -1008,7 +1159,12 @@ class Trainer:
             train_header_table_id_list.extend(processed_result[13])
             train_header_masks.extend(processed_result[14])
             train_question_masks.extend(processed_result[15])
-            train_value_masks.extend(processed_result[16])
+            train_subheader_cls_list.extend(processed_result[16])
+            train_subheader_masks.extend(processed_result[17])
+            train_sel_num_labels.extend(processed_result[18])
+            train_where_num_labels.extend(processed_result[19])
+            train_op_labels.extend(processed_result[20])
+            train_value_masks.extend(processed_result[21])
             train_sample_index_list.append(len(train_conc_tokens))
             train_sql_list.append(sample["sql"])
             train_question_list.append(sample["question"])
@@ -1033,6 +1189,11 @@ class Trainer:
         valid_header_table_id_list = []
         valid_header_masks = []
         valid_question_masks = []
+        valid_subheader_cls_list = []
+        valid_subheader_masks = []
+        valid_sel_num_labels = []
+        valid_where_num_labels = []
+        valid_op_labels = []
         valid_value_masks = []
         for sample in valid_data_list:
             processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
@@ -1052,7 +1213,12 @@ class Trainer:
             valid_header_table_id_list.extend(processed_result[13])
             valid_header_masks.extend(processed_result[14])
             valid_question_masks.extend(processed_result[15])
-            valid_value_masks.extend(processed_result[16])
+            valid_subheader_cls_list.extend(processed_result[16])
+            valid_subheader_masks.extend(processed_result[17])
+            valid_sel_num_labels.extend(processed_result[18])
+            valid_where_num_labels.extend(processed_result[19])
+            valid_op_labels.extend(processed_result[20])
+            valid_value_masks.extend(processed_result[21])
             valid_sample_index_list.append(len(valid_conc_tokens))
             valid_sql_list.append(sample["sql"])
             valid_question_list.append(sample["question"])
@@ -1071,6 +1237,11 @@ class Trainer:
                                            torch.tensor(train_cls_index_list, dtype=torch.long),
                                            torch.tensor(train_header_masks, dtype=torch.long),
                                            torch.tensor(train_question_masks, dtype=torch.long),
+                                           torch.tensor(train_subheader_cls_list, dtype=torch.long),
+                                           torch.tensor(train_subheader_masks, dtype=torch.long),
+                                           torch.tensor(train_sel_num_labels, dtype=torch.long),
+                                           torch.tensor(train_where_num_labels, dtype=torch.long),
+                                           torch.tensor(train_op_labels, dtype=torch.long),
                                            torch.tensor(train_value_masks, dtype=torch.long)
                                            )
         valid_dataset = data.TensorDataset(torch.tensor(valid_conc_tokens, dtype=torch.long),
@@ -1087,6 +1258,11 @@ class Trainer:
                                            torch.tensor(valid_cls_index_list, dtype=torch.long),
                                            torch.tensor(valid_header_masks, dtype=torch.long),
                                            torch.tensor(valid_question_masks, dtype=torch.long),
+                                           torch.tensor(valid_subheader_cls_list, dtype=torch.long),
+                                           torch.tensor(valid_subheader_masks, dtype=torch.long),
+                                           torch.tensor(valid_sel_num_labels, dtype=torch.long),
+                                           torch.tensor(valid_where_num_labels, dtype=torch.long),
+                                           torch.tensor(valid_op_labels, dtype=torch.long),
                                            torch.tensor(valid_value_masks, dtype=torch.long)
                                            )
         # 将 dataset 转成 dataloader
@@ -1135,8 +1311,8 @@ class Trainer:
                (set([tuple(i) for i in s1['conds']]) == set([tuple(i) for i in s2['conds']]))
 
     def evaluate(self, logits_lists, cls_index_list, labels_lists, question_list, table_id_list, sample_index_list, correct_sql_list, table_dict, header_question_list, header_table_id_list):
-        [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list] = logits_lists
-        [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list] = labels_lists
+        [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list] = logits_lists
+        [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list] = labels_lists
 
         # {"agg": [0], "cond_conn_op": 2, "sel": [1], "conds": [[3, 0, "11"], [6, 0, "11"]]}
         sql_dict = {"agg": [], "cond_conn_op": None, "sel": [], "conds": []}
@@ -1153,6 +1329,10 @@ class Trainer:
             sample_connection_logits = connection_logits_list[start_index: end_index]
             sample_con_num_logits = con_num_logits_list[start_index: end_index]
             sample_type_logits = type_logits_list[start_index: end_index]
+            sample_sel_num_logits = sel_num_logits_list[start_index: end_index]
+            sample_where_num_logits = where_num_logits_list[start_index: end_index]
+            sample_op_logits_list = op_logits_list[start_index: end_index]
+
             cls_index = cls_index_list[start_index]
             table_header_list = table_dict[sample_table_id]["header"]
             table_type_list = table_dict[sample_table_id]["types"]
@@ -1166,121 +1346,142 @@ class Trainer:
             table_header_list = table_dict[sample_table_id]["header"]
             table_row_list = table_dict[sample_table_id]["rows"]
             """
-            tmp_sql_dict = copy.deepcopy(sql_dict)
-            connection_list = []
             value_change_list = []
+            sel_prob_list = []
+            where_prob_list = []
             for j, col_type in enumerate(sample_type_logits):
-                if col_type == 0:
-                    # sel
-                    agg = sample_agg_logits[j]
-                    sel_col = j
-                    tmp_sql_dict["agg"].append(agg)
-                    tmp_sql_dict["sel"].append(sel_col)
-                elif col_type == 1:
-                    # where
-                    tag_list = sample_tag_logits[j][1: cls_index - 1]
-                    con_num = sample_con_num_logits[j]
-                    connection = sample_connection_logits[j]
-                    connection_list.append(connection)
-                    con_col = j
-                    candidate_list = [[[], []]]
-                    candidate_list_index = 0
-                    value_start_index_list = []
-                    previous_tag = -1
-                    for i in range(0, len(tag_list)):
-                        a = len(tag_list)
-                        b = len(sample_question)
-                        current_tag = tag_list[i]
-                        if current_tag == 4:
-                            if previous_tag in [0, 1, 2, 3]:
-                                candidate_list.append([[], []])
-                                candidate_list_index += 1
-                        else:
-                            if previous_tag in [-1, 4]:
-                                value_start_index_list.append(i)
-                            candidate_list[candidate_list_index][0].append(sample_question[i])  # 多了一个 cls
-                            candidate_list[candidate_list_index][1].append(tag_list[i])
-                        previous_tag = current_tag
-                    con_list = []
-                    # for candidate in candidate_list:
-                    for i in range(len(value_start_index_list)):
-                        candidate = candidate_list[i]
-                        value_start_index = value_start_index_list[i]
-                        str_list = candidate[0]
-                        op_list = candidate[1]
-                        if len(str_list) == 0: continue
-                        value_str = "".join(str_list)
+                type_probs = type_probs_list[j]
+                sel_prob = type_probs[0]
+                where_prob = type_probs[1]
 
-                        header = table_header_list[j]
-                        col_data_type = table_type_list[j]
-                        col_values = col_dict[j]
-                        op = max(op_list, key=op_list.count)
-                        """
-                        if (con_col == 2 and op == 2 and value_str == "1000") or \
-                            (con_col == 6 and op == 2 and value_str == "2015年") or \
-                            (con_col == 5 and op == 2 and value_str == "350k") or \
-                            (con_col == 2 and op == 0 and value_str == "20万") or \
-                            (con_col == 6 and op == 2 and value_str == "2016年"):
-                            print(1)
-                        """
-                        candidate_value_set = set()
-                        new_value, longest_digit_num, longest_chinese_num = ValueOptimizer.find_longest_num(value_str, sample_question, value_start_index)
-                        candidate_value_set.add(value_str)
-                        candidate_value_set.add(new_value)
-                        if longest_digit_num:
-                            candidate_value_set.add(longest_digit_num)
-                        digit = None
-                        if longest_chinese_num:
-                            candidate_value_set.add(longest_chinese_num)
-                            digit = ValueOptimizer.chinese2digits(longest_chinese_num)
-                            if digit:
-                                candidate_value_set.add(digit)
-                        replace_candidate_set = ValueOptimizer.create_candidate_set(value_str)
-                        candidate_value_set |= replace_candidate_set
-                        # 确定 value 值
-                        final_value = value_str  # default
-                        if op != 2:  # 不是 =，不能搜索，能比大小的应该就是数字
-                            if longest_digit_num:
-                                final_value = longest_digit_num
-                                if final_value != value_str: value_change_list.append([value_str, final_value])
-                            elif digit:
-                                final_value = digit
-                                if final_value != value_str: value_change_list.append([value_str, final_value])
-                        else:
-                            if value_str not in col_values:
-                                best_value = ValueOptimizer.select_best_matched_value_from_candidates(
-                                    candidate_value_set, col_values)
-                                if len(best_value) > 0:
-                                    final_value = best_value
-                                    if final_value != value_str: value_change_list.append([value_str, final_value])
-                                else:
-                                    value_change_list.append([value_str, "丢弃"])
-                                    continue  # =，不在列表内，也没找到模糊匹配，抛弃
+                # sel
+                agg = sample_agg_logits[j]
+                sel_col = j
+                sel_prob_list.append({"prob": sel_prob, "type": col_type, "sel": sel_col, "agg": agg})
 
-                        con_list.append([con_col, op, final_value])
-                        """
-                        if col_data_type == "text":
-                            if value_str not in col_values:
-                                best_value, _ = value_optimizer.select_best_matched_value(value_str, col_values)
-                                if len(best_value) > 0:
-                                    value_str = best_value
-                        elif col_data_type == "real":
-                            if op != 2: # 不是 =，不能搜索，能比大小的应该就是数字
-                                if longest_digit_num:
-                                    value_str = longest_digit_num
-                                elif digit:
-                                    value_str = digit
-                        """
-                    if len(con_list) == con_num:
-                        tmp_sql_dict["conds"].extend(con_list)
+                # where
+                tag_list = sample_tag_logits[j][1: cls_index - 1]
+                con_num = sample_con_num_logits[j]
+                col_op = sample_op_logits_list[j]
+                con_col = j
+                candidate_list = [[[], []]]
+                candidate_list_index = 0
+                value_start_index_list = []
+                previous_tag = -1
+                for i in range(0, len(tag_list)):
+                    a = len(tag_list)
+                    b = len(sample_question)
+                    current_tag = tag_list[i]
+                    # 一个 value 结束
+                    if current_tag == 0:
+                        if previous_tag == 1:
+                            candidate_list.append([[], []])
+                            candidate_list_index += 1
+                    # 一个 value 开始
                     else:
-                        if len(con_list) > 0:
-                            tmp_sql_dict["conds"].append(con_list[0])
-            if len(connection_list) > 0 and len(tmp_sql_dict["conds"]) > 1:
-                final_connection = max(connection_list, key=connection_list.count)
+                        if previous_tag in [-1, 0]:
+                            value_start_index_list.append(i)
+                        candidate_list[candidate_list_index][0].append(sample_question[i])  # 多了一个 cls
+                        candidate_list[candidate_list_index][1].append(tag_list[i])
+                    previous_tag = current_tag
+                con_list = []
+                # for candidate in candidate_list:
+                for i in range(len(value_start_index_list)):
+                    candidate = candidate_list[i]
+                    value_start_index = value_start_index_list[i]
+                    str_list = candidate[0]
+                    if len(str_list) == 0: continue
+                    value_str = "".join(str_list)
+                    header = table_header_list[j]
+                    col_data_type = table_type_list[j]
+                    col_values = col_dict[j]
+                    op = col_op
+                    """
+                    if (con_col == 2 and op == 2 and value_str == "1000") or \
+                        (con_col == 6 and op == 2 and value_str == "2015年") or \
+                        (con_col == 5 and op == 2 and value_str == "350k") or \
+                        (con_col == 2 and op == 0 and value_str == "20万") or \
+                        (con_col == 6 and op == 2 and value_str == "2016年"):
+                        print(1)
+                    """
+                    candidate_value_set = set()
+                    new_value, longest_digit_num, longest_chinese_num = ValueOptimizer.find_longest_num(value_str, sample_question, value_start_index)
+                    candidate_value_set.add(value_str)
+                    candidate_value_set.add(new_value)
+                    if longest_digit_num:
+                        candidate_value_set.add(longest_digit_num)
+                    digit = None
+                    if longest_chinese_num:
+                        candidate_value_set.add(longest_chinese_num)
+                        digit = ValueOptimizer.chinese2digits(longest_chinese_num)
+                        if digit:
+                            candidate_value_set.add(digit)
+                    replace_candidate_set = ValueOptimizer.create_candidate_set(value_str)
+                    candidate_value_set |= replace_candidate_set
+                    # 确定 value 值
+                    final_value = value_str  # default
+                    if op != 2:  # 不是 =，不能搜索，能比大小的应该就是数字
+                        if longest_digit_num:
+                            final_value = longest_digit_num
+                            if final_value != value_str: value_change_list.append([value_str, final_value])
+                        elif digit:
+                            final_value = digit
+                            if final_value != value_str: value_change_list.append([value_str, final_value])
+                    else:
+                        if value_str not in col_values:
+                            best_value = ValueOptimizer.select_best_matched_value_from_candidates(
+                                candidate_value_set, col_values)
+                            if len(best_value) > 0:
+                                final_value = best_value
+                                if final_value != value_str: value_change_list.append([value_str, final_value])
+                            else:
+                                value_change_list.append([value_str, "丢弃"])
+                                continue  # =，不在列表内，也没找到模糊匹配，抛弃
+                    # con_list 是一列里面的 con
+                    con_list.append([con_col, op, final_value])
+                    """
+                    if col_data_type == "text":
+                        if value_str not in col_values:
+                            best_value, _ = value_optimizer.select_best_matched_value(value_str, col_values)
+                            if len(best_value) > 0:
+                                value_str = best_value
+                    elif col_data_type == "real":
+                        if op != 2: # 不是 =，不能搜索，能比大小的应该就是数字
+                            if longest_digit_num:
+                                value_str = longest_digit_num
+                            elif digit:
+                                value_str = digit
+                    """
+                if len(con_list) == con_num:
+                    for [con_col, op, final_value] in con_list:
+                        where_prob_list.append({"prob": where_prob, "type": col_type, "cond": [con_col, op, final_value]})
+                else:
+                    if len(con_list) > 0:
+                        [con_col, op, final_value] = con_list[0]
+                        where_prob_list.append({"prob": where_prob, "type": col_type, "cond": [con_col, op, final_value]})
+            sel_num = max(sample_sel_num_logits, key=sample_sel_num_logits.count)
+            where_num = max(sample_where_num_logits, key=sample_where_num_logits.count)
+
+            # connection = max(real_connection_list, key=real_connection_list.count) if where_num > 1 and len(real_connection_list) > 0 else 0
+            # type_dict = {0: "sel", 1: "con", 2: "none"}
+            sel_prob_list = sorted(sel_prob_list, key=lambda x: (-x["type"], x["prob"]), reverse=True)
+            where_prob_list = sorted(where_prob_list, key=lambda x: (-(x["type"] ** 2 - 1) ** 2, x["prob"]), reverse=True)
+
+            # TODO: connection只有where时才预测，要改过来，前where
+            if where_num <= 1 or len(where_prob_list) == 0:
+                connection = 0
             else:
-                final_connection = 0
-            tmp_sql_dict["cond_conn_op"] = final_connection
+                where_cols = list(map(lambda x: x["cond"][0], where_prob_list[: where_num]))
+                real_connection_list = [sample_connection_logits[k] for k in where_cols]
+                connection = max(real_connection_list, key=real_connection_list.count)
+
+            tmp_sql_dict = copy.deepcopy(sql_dict)
+            tmp_sql_dict["cond_conn_op"] = connection
+            for j in range(min(sel_num, len(sel_prob_list))):
+                tmp_sql_dict["agg"].append(sel_prob_list[j]["agg"])
+                tmp_sql_dict["sel"].append(sel_prob_list[j]["sel"])
+            for j in range(min(where_num, len(where_prob_list))):
+                tmp_sql_dict["conds"].append(where_prob_list[j]["cond"])
             sql_list.append(tmp_sql_dict)
             if self.sql_match(tmp_sql_dict, sample_sql):
                 matched_num += 1
@@ -1310,6 +1511,12 @@ class Trainer:
         con_num_true = []
         type_pred = type_logits_list
         type_true = type_labels_list
+        sel_num_pred = sel_num_logits_list
+        sel_num_true = sel_num_labels_list
+        where_num_pred = where_num_logits_list
+        where_num_true = where_num_labels_list
+        op_pred = []
+        op_true = []
 
         for i, col_type in enumerate(type_true):
             if col_type == 0: # sel
@@ -1329,13 +1536,19 @@ class Trainer:
                 connection_true.append(connection_labels_list[i])
                 con_num_pred.append(con_num_logits_list[i])
                 con_num_true.append(con_num_labels_list[i])
+                op_pred.append(op_logits_list[i])
+                op_true.append(op_labels_list[i])
 
         eval_result = ""
         eval_result += "TYPE\n" + self.detail_score(type_true, type_pred, num_labels=3, ignore_num=None) + "\n"
-        eval_result += "TAG\n" + self.detail_score(tag_true, tag_pred, num_labels=5, ignore_num=4) + "\n"
+        eval_result += "TAG\n" + self.detail_score(tag_true, tag_pred, num_labels=2, ignore_num=None) + "\n"
         eval_result += "CONNECTION\n" + self.detail_score(connection_true, connection_pred, num_labels=3, ignore_num=None) + "\n"
         eval_result += "CON_NUM\n" + self.detail_score(con_num_true, con_num_pred, num_labels=4, ignore_num=0) + "\n"
         eval_result += "AGG\n" + self.detail_score(agg_true, agg_pred, num_labels=6, ignore_num=None) + "\n"
+        eval_result += "SEL_NUM\n" + self.detail_score(sel_num_true, sel_num_pred, num_labels=4, ignore_num=0) + "\n"
+        eval_result += "WHERE_NUM\n" + self.detail_score(where_num_true, where_num_pred, num_labels=5, ignore_num=0) + "\n"
+        eval_result += "OP\n" + self.detail_score(op_true, op_pred, num_labels=4, ignore_num=None) + "\n"
+
         tag_acc = accuracy_score(tag_true, tag_pred)
 
         return eval_result, tag_acc, logical_acc
@@ -1398,7 +1611,12 @@ class Trainer:
                     cls_index_list = batch_data[11].to(self.device)
                     header_masks = batch_data[12].to(self.device)
                     question_masks = batch_data[13].to(self.device)
-                    value_masks = batch_data[14].to(self.device)
+                    subheader_cls_list = batch_data[14].to(self.device)
+                    subheader_masks = batch_data[15].to(self.device)
+                    sel_num_labels = batch_data[16].to(self.device)
+                    where_num_labels = batch_data[17].to(self.device)
+                    op_labels = batch_data[18].to(self.device)
+                    value_masks = batch_data[19].to(self.device)
                 else:
                     input_ids = batch_data[0]
                     tag_masks = batch_data[1]
@@ -1414,10 +1632,15 @@ class Trainer:
                     cls_index_list = batch_data[11]
                     header_masks = batch_data[12]
                     question_masks = batch_data[13]
-                    value_masks = batch_data[14]
+                    subheader_cls_list = batch_data[14]
+                    subheader_masks = batch_data[15]
+                    sel_num_labels = batch_data[16]
+                    where_num_labels = batch_data[17]
+                    op_labels = batch_data[18]
+                    value_masks = batch_data[19]
                 if torch.sum(sel_masks) == 0 or torch.sum(con_masks) == 0 or torch.sum(tag_masks) == 0: continue
-                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels]
-                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, value_masks, cls_index_list, train_dependencies=train_dependencies)
+                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
+                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_index_list, train_dependencies=train_dependencies)
                 if torch.cuda.is_available():
                     with amp.scale_loss(loss, optimizer) as scaled_loss:
                         scaled_loss.backward()
@@ -1427,7 +1650,7 @@ class Trainer:
                     optimizer.step()
                     optimizer.zero_grad()
             # 只在复数 epoch 进行验证
-            if (epoch + 1) % 2 != 0 or (epoch + 1) < 10: continue
+            # if ((epoch + 1) % 2 != 0 or (epoch + 1) < 18) and self.debug_mode is False: continue
             # 开始验证
             valid_start_time = time.time()
             model.eval()
@@ -1442,6 +1665,13 @@ class Trainer:
             con_num_labels_list = []
             type_labels_list = []
             cls_index_list = []
+            sel_num_labels_list = []
+            where_num_labels_list = []
+            sel_num_logits_list = []
+            where_num_logits_list = []
+            type_probs_list = []
+            op_labels_list = []
+            op_logits_list = []
             for j, valid_batch_data in enumerate(valid_loader):
                 if torch.cuda.is_available():
                     input_ids = valid_batch_data[0].to(self.device)
@@ -1458,7 +1688,12 @@ class Trainer:
                     cls_indices = valid_batch_data[11].to(self.device)
                     header_masks = valid_batch_data[12].to(self.device)
                     question_masks = valid_batch_data[13].to(self.device)
-                    value_masks = valid_batch_data[14].to(self.device)
+                    subheader_cls_list = valid_batch_data[14].to(self.device)
+                    subheader_masks = valid_batch_data[15].to(self.device)
+                    sel_num_labels = valid_batch_data[16].to(self.device)
+                    where_num_labels = valid_batch_data[17].to(self.device)
+                    op_labels = valid_batch_data[18].to(self.device)
+                    value_masks = valid_batch_data[19].to(self.device)
                 else:
                     input_ids = valid_batch_data[0]
                     tag_masks = valid_batch_data[1]
@@ -1474,8 +1709,13 @@ class Trainer:
                     cls_indices = valid_batch_data[11]
                     header_masks = valid_batch_data[12]
                     question_masks = valid_batch_data[13]
-                    value_masks = valid_batch_data[14]
-                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, value_masks, cls_indices)
+                    subheader_cls_list = valid_batch_data[14]
+                    subheader_masks = valid_batch_data[15]
+                    sel_num_labels = valid_batch_data[16]
+                    where_num_labels = valid_batch_data[17]
+                    op_labels = valid_batch_data[18]
+                    value_masks = valid_batch_data[19]
+                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_indices)
 
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
@@ -1483,6 +1723,9 @@ class Trainer:
                 con_num_labels = con_num_labels.to('cpu').numpy().tolist()
                 type_labels = type_labels.to('cpu').numpy().tolist()
                 cls_indices = cls_indices.to('cpu').numpy().tolist()
+                sel_num_labels = sel_num_labels.to('cpu').numpy().tolist()
+                where_num_labels = where_num_labels.to('cpu').numpy().tolist()
+                op_labels = op_labels.to('cpu').numpy().tolist()
 
                 tag_logits_list.extend(tag_logits)
                 agg_logits_list.extend(agg_logits)
@@ -1495,9 +1738,16 @@ class Trainer:
                 con_num_labels_list.extend(con_num_labels)
                 type_labels_list.extend(type_labels)
                 cls_index_list.extend(cls_indices)
+                sel_num_labels_list.extend(sel_num_labels)
+                where_num_labels_list.extend(where_num_labels)
+                sel_num_logits_list.extend(sel_num_logits)
+                where_num_logits_list.extend(where_num_logits)
+                type_probs_list.extend(type_probs)
+                op_labels_list.extend(op_labels)
+                op_logits_list.extend(op_logits)
 
-            logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list]
-            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list]
+            logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
+            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
 
             score = logical_acc
@@ -1509,7 +1759,7 @@ class Trainer:
             f_log.write(eval_result + "\n")
             f_log.flush()
             save_start_time = time.time()
-            """
+
             if not self.debug_mode and score > best_score:
                 best_score = score
                 state_dict = model.state_dict()
@@ -1519,7 +1769,7 @@ class Trainer:
                 torch.save(state_dict, model_name)
                 print("model save duration: %d min" % int((time.time() - save_start_time) / 60))
                 f_log.write("model save duration: %d min\n" % int((time.time() - save_start_time) / 60))
-            """
+
             model.train()
         f_log.close()
         # del 训练相关输入和模型
@@ -1534,7 +1784,7 @@ if __name__ == "__main__":
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
         data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=24, batch_size=32, base_batch_size=32, max_len=140, part=0.2, debug_mode=False)
+    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=32, base_batch_size=32, max_len=200, part=1, debug_mode=False)
     time1 = time.time()
     try:
         trainer.train()
