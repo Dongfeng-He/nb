@@ -900,7 +900,7 @@ class Trainer:
         data_list = []
         with open(path, "r") as f:
             for i, line in enumerate(f):
-                if self.debug_mode and i == 200: break
+                if self.debug_mode and i == 20: break
                 sample = json.loads(line)
                 data_list.append(sample)
         if num and not self.debug_mode:
@@ -1448,7 +1448,8 @@ class Trainer:
             end_index = sample_index_list[i]
             sample_question = question_list[i]
             sample_table_id = table_id_list[i]
-            sample_sql = correct_sql_list[i]
+            if do_test is False:
+                sample_sql = correct_sql_list[i]
             sample_tag_logits = tag_logits_list[start_index: end_index]
             sample_agg_logits = agg_logits_list[start_index: end_index]
             sample_connection_logits = connection_logits_list[start_index: end_index]
@@ -1917,7 +1918,10 @@ class Trainer:
         train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict = self.create_dataloader()
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
-        model.load_state_dict(torch.load("/root/nb/NL2SQL/my_model.bin"))
+        if os.path.exists("/Users/hedongfeng/Desktop/NL2SQL/71_2_full"):
+            model.load_state_dict(torch.load("/Users/hedongfeng/Desktop/NL2SQL/71_2_full/my_model.bin", map_location="cpu"))
+        else:
+            model.load_state_dict(torch.load("/root/nb/NL2SQL/my_model.bin"))
         model = model.to(self.device) if torch.cuda.is_available() else model
         for param in model.parameters():
             param.requires_grad = False
@@ -2066,7 +2070,8 @@ class Trainer:
 
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [[] for _ in range(8)]
-            self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, do_test=True)
+            test_sql_list, test_header_question_list, test_header_table_id_list = [], [], []
+            self.evaluate(logits_lists, cls_index_list, labels_lists, test_question_list, test_table_id_list, test_sample_index_list, test_sql_list, test_table_dict, test_header_question_list, test_header_table_id_list, do_test=True)
 
 
 if __name__ == "__main__":
@@ -2083,5 +2088,5 @@ if __name__ == "__main__":
             pass
         os.system("sudo init 0")
     else:
-        trainer.test()
+        trainer.test(do_evaluate=False, do_test=True)
 
