@@ -1438,7 +1438,7 @@ class Trainer:
     def evaluate(self, logits_lists, cls_index_list, labels_lists, question_list, table_id_list, sample_index_list, correct_sql_list, table_dict, header_question_list, header_table_id_list, do_test=False):
         [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list] = logits_lists
         [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list] = labels_lists
-        f_valid = open("valid_detail.text", 'w')
+        f_valid = open("valid_detail.txt", 'w')
         # {"agg": [0], "cond_conn_op": 2, "sel": [1], "conds": [[3, 0, "11"], [6, 0, "11"]]}
         sql_dict = {"agg": [], "cond_conn_op": None, "sel": [], "conds": []}
         sql_list = []
