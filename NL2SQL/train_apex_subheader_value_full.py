@@ -1947,8 +1947,8 @@ class Trainer:
         train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.create_dataloader()
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
-        if os.path.exists("/Users/hedongfeng/Desktop/NL2SQL/71_2_full"):
-            model.load_state_dict(torch.load("/Users/hedongfeng/Desktop/NL2SQL/71_2_full/my_model.bin", map_location="cpu"))
+        if os.path.exists("/Users/hedongfeng/Desktop/NL2SQL/76_0_fix_tag"):
+            model.load_state_dict(torch.load("/Users/hedongfeng/Desktop/NL2SQL/76_0_fix_tag/my_model.bin", map_location="cpu"))
         else:
             model.load_state_dict(torch.load("/root/nb/NL2SQL/my_model.bin"))
         model = model.to(self.device) if torch.cuda.is_available() else model
@@ -2109,7 +2109,7 @@ if __name__ == "__main__":
     else:
         data_dir = "/root/nb/data/nl2sql_data"
     trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=1, debug_mode=False)
-    do_test = False
+    do_test = True
     if do_test is False:
         try:
             trainer.train()
@@ -2117,5 +2117,5 @@ if __name__ == "__main__":
             pass
         # os.system("sudo init 0")
     else:
-        trainer.test(do_evaluate=True, do_test=True)
+        trainer.test(do_evaluate=False, do_test=True)
 
