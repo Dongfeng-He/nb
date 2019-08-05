@@ -900,7 +900,7 @@ class Trainer:
         data_list = []
         with open(path, "r") as f:
             for i, line in enumerate(f):
-                if self.debug_mode and i == 20: break
+                if self.debug_mode and i == 3: break
                 sample = json.loads(line)
                 data_list.append(sample)
         if num and not self.debug_mode:
@@ -952,6 +952,8 @@ class Trainer:
         table_title = table_dict[table_id]["title"]
         table_header_list = table_dict[table_id]["header"]
         table_row_list = table_dict[table_id]["rows"]
+        # 去除空格和换行等
+        question = question.strip().replace(" ", "")
 
         col_dict = {header_name: set() for header_name in table_header_list}
         for row in table_row_list:
@@ -1003,6 +1005,16 @@ class Trainer:
         op_labels = []
 
         question_tokens = bert_tokenizer.tokenize(question)
+        question_list = list(question)
+
+        question_char_mapping = []
+        for i, token in enumerate(question_tokens):
+            token = token.replace("##", "")
+            if token == "[UNK]":
+                question_char_mapping.extend([i])
+            else:
+                question_char_mapping.extend([i] * len(token))
+
         question_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + question_tokens + ["[SEP]"])
         header_cls_index = len(question_ids)
         question_mask = self.create_mask(max_len=self.max_len, start_index=1, mask_len=len(question_tokens))
@@ -1050,11 +1062,7 @@ class Trainer:
             attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
             conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
 
-            # TODO: [4] 改成了 [0]
-            tag_ids = [0] * len(conc_ids)  # 4 是不标注
-
-            op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "不选中"}
-
+            tag_ids = [0] * len(conc_ids)
             sel_mask, con_mask, type_mask = 0, 0, 1
             connection_id, agg_id, con_num, op = 0, 0, 0, 2
             if col in con_dict:
@@ -1062,9 +1070,12 @@ class Trainer:
                 if list(map(lambda x: x[0], con_list)).count(col) != len(con_dict[col]): continue
                 header_con_list = con_dict[col]
                 for [op, value, index] in header_con_list:
-                    # TODO: [op] 改成了 [1]
-                    tag_ids[index + 1: index + 1 + len(value)] = [1] * len(value)
-                tag_mask = [0] + [1] * len(question) + [0] * (self.max_len - len(question) - 1)
+                    value_char_start_index = index
+                    value_char_end_index = index + len(value) - 1
+                    value_id_start_index = question_char_mapping[value_char_start_index] + 1
+                    value_id_end_index = question_char_mapping[value_char_end_index] + 1 + 1    # 一个1是cls，一个1是end_index回缩一格
+                    tag_ids[value_id_start_index: value_id_end_index] = [1] * (value_id_end_index - value_id_start_index)
+                tag_mask = [0] + [1] * len(question_tokens) + [0] * (self.max_len - len(question_tokens) - 1)
                 con_mask = 1
                 connection_id = connection
                 con_num = min(len(header_con_list), 3)  # 4 只有一个样本，太少了，归到 3 类
@@ -1101,7 +1112,7 @@ class Trainer:
             op_labels.append(op)
             value_masks.append(value_mask)
 
-        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks
+        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_tokens
 
     def process_sample_test(self, sample, table_dict, bert_tokenizer):
         question = sample["question"]
@@ -1109,6 +1120,7 @@ class Trainer:
         table_title = table_dict[table_id]["title"]
         table_header_list = table_dict[table_id]["header"]
         table_row_list = table_dict[table_id]["rows"]
+        question = question.strip().replace(" ", "")
 
         col_dict = {header_name: set() for header_name in table_header_list}
         for row in table_row_list:
@@ -1183,7 +1195,7 @@ class Trainer:
             value_masks.append(value_mask)
         type_masks = [1] * len(conc_tokens)
 
-        return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks
+        return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
 
     def create_dataloader(self):
         """
@@ -1229,6 +1241,7 @@ class Trainer:
         train_where_num_labels = []
         train_op_labels = []
         train_value_masks = []
+        train_question_token_list = []
         for sample in train_data_list:
             processed_result = self.process_sample(sample, train_table_dict, bert_tokenizer)
             train_tag_masks.extend(processed_result[0])
@@ -1253,9 +1266,10 @@ class Trainer:
             train_where_num_labels.extend(processed_result[19])
             train_op_labels.extend(processed_result[20])
             train_value_masks.extend(processed_result[21])
+            train_question_token_list.append(processed_result[22])
             train_sample_index_list.append(len(train_conc_tokens))
             train_sql_list.append(sample["sql"])
-            train_question_list.append(sample["question"])
+            train_question_list.append(sample["question"].strip().replace(" ", ""))
             train_table_id_list.append(sample["table_id"])
         valid_conc_tokens = []
         valid_tag_masks = []
@@ -1283,6 +1297,7 @@ class Trainer:
         valid_where_num_labels = []
         valid_op_labels = []
         valid_value_masks = []
+        valid_question_token_list = []
         for sample in valid_data_list:
             processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
             valid_tag_masks.extend(processed_result[0])
@@ -1307,9 +1322,10 @@ class Trainer:
             valid_where_num_labels.extend(processed_result[19])
             valid_op_labels.extend(processed_result[20])
             valid_value_masks.extend(processed_result[21])
+            valid_question_token_list.append(processed_result[22])
             valid_sample_index_list.append(len(valid_conc_tokens))
             valid_sql_list.append(sample["sql"])
-            valid_question_list.append(sample["question"])
+            valid_question_list.append(sample["question"].strip().replace(" ", ""))
             valid_table_id_list.append(sample["table_id"])
         test_conc_tokens = []
         test_attention_masks = []
@@ -1323,6 +1339,7 @@ class Trainer:
         test_subheader_masks = []
         test_value_masks = []
         test_type_masks = []
+        test_question_token_list = []
         for sample in test_data_list:
             processed_result = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
             test_attention_masks.extend(processed_result[0])
@@ -1334,8 +1351,9 @@ class Trainer:
             test_subheader_masks.extend(processed_result[6])
             test_value_masks.extend(processed_result[7])
             test_type_masks.extend(processed_result[8])
+            test_question_token_list.append(processed_result[9])
             test_sample_index_list.append(len(test_conc_tokens))
-            test_question_list.append(sample["question"])
+            test_question_list.append(sample["question"].strip().replace(" ", ""))
             test_table_id_list.append(sample["table_id"])
         train_dataset = data.TensorDataset(torch.tensor(train_conc_tokens, dtype=torch.long),
                                            torch.tensor(train_tag_masks, dtype=torch.long),
@@ -1394,7 +1412,7 @@ class Trainer:
         valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.base_batch_size, shuffle=False)
         # 返回训练数据
-        return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict
+        return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list
 
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
@@ -1435,7 +1453,7 @@ class Trainer:
                (set(zip(s1['sel'], s1['agg'])) == set(zip(s2['sel'], s2['agg']))) & \
                (set([tuple(i) for i in s1['conds']]) == set([tuple(i) for i in s2['conds']]))
 
-    def evaluate(self, logits_lists, cls_index_list, labels_lists, question_list, table_id_list, sample_index_list, correct_sql_list, table_dict, header_question_list, header_table_id_list, do_test=False):
+    def evaluate(self, logits_lists, cls_index_list, labels_lists, question_list, question_token_list, table_id_list, sample_index_list, correct_sql_list, table_dict, header_question_list, header_table_id_list, do_test=False):
         [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list] = logits_lists
         [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list] = labels_lists
         f_valid = open("valid_detail.txt", 'w')
@@ -1447,6 +1465,7 @@ class Trainer:
             start_index = 0 if i == 0 else sample_index_list[i - 1]
             end_index = sample_index_list[i]
             sample_question = question_list[i]
+            sample_question_token = question_token_list[i]
             sample_table_id = table_id_list[i]
             if do_test is False:
                 sample_sql = correct_sql_list[i]
@@ -1494,10 +1513,20 @@ class Trainer:
                 candidate_list_index = 0
                 value_start_index_list = []
                 previous_tag = -1
-                for i in range(0, len(tag_list)):
-                    a = len(tag_list)
-                    b = len(sample_question)
-                    current_tag = tag_list[i]
+
+                # 把 token 的 tag_list 扩展成 question 长度
+                question_tag_list = []
+                for i in range(len(tag_list)):
+                    tag = tag_list[i]
+                    token = sample_question_token[i]
+                    token = token.replace("##", "")
+                    if token == "[UNK]":
+                        question_tag_list.extend([tag])
+                    else:
+                        question_tag_list.extend([tag] * len(token))
+
+                for i in range(0, len(question_tag_list)):
+                    current_tag = question_tag_list[i]
                     # 一个 value 结束
                     if current_tag == 0:
                         if previous_tag == 1:
@@ -1508,7 +1537,7 @@ class Trainer:
                         if previous_tag in [-1, 0]:
                             value_start_index_list.append(i)
                         candidate_list[candidate_list_index][0].append(sample_question[i])  # 多了一个 cls
-                        candidate_list[candidate_list_index][1].append(tag_list[i])
+                        candidate_list[candidate_list_index][1].append(question_tag_list[i])
                     previous_tag = current_tag
                 con_list = []
                 # for candidate in candidate_list:
@@ -1691,7 +1720,7 @@ class Trainer:
     def train(self):
         if self.debug_mode: self.epochs = 1
         # 加载 dataloader
-        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict = self.create_dataloader()
+        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.create_dataloader()
         # 训练
         self.seed_everything()
         lr = 1e-5
@@ -1883,7 +1912,7 @@ class Trainer:
 
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
+            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
 
             score = logical_acc
             # print("epoch: %d duration: %d min \n" % (epoch + 1, int((time.time() - train_start_time) / 60)))
@@ -1915,7 +1944,7 @@ class Trainer:
 
     def test(self, do_evaluate=True, do_test=True):
         # 加载 dataloader
-        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict = self.create_dataloader()
+        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.create_dataloader()
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
         if os.path.exists("/Users/hedongfeng/Desktop/NL2SQL/71_2_full"):
@@ -2021,7 +2050,7 @@ class Trainer:
 
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
+            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
             print(eval_result)
 
         if do_test:
@@ -2071,7 +2100,7 @@ class Trainer:
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [[] for _ in range(8)]
             test_sql_list, test_header_question_list, test_header_table_id_list = [], [], []
-            self.evaluate(logits_lists, cls_index_list, labels_lists, test_question_list, test_table_id_list, test_sample_index_list, test_sql_list, test_table_dict, test_header_question_list, test_header_table_id_list, do_test=True)
+            self.evaluate(logits_lists, cls_index_list, labels_lists, test_question_list, test_question_token_list, test_table_id_list, test_sample_index_list, test_sql_list, test_table_dict, test_header_question_list, test_header_table_id_list, do_test=True)
 
 
 if __name__ == "__main__":
@@ -2080,13 +2109,13 @@ if __name__ == "__main__":
     else:
         data_dir = "/root/nb/data/nl2sql_data"
     trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=1, debug_mode=False)
-    do_test = True
+    do_test = False
     if do_test is False:
         try:
             trainer.train()
         except:
             pass
-        os.system("sudo init 0")
+        # os.system("sudo init 0")
     else:
-        trainer.test(do_evaluate=False, do_test=True)
+        trainer.test(do_evaluate=True, do_test=True)
 
