@@ -900,7 +900,7 @@ class Trainer:
         data_list = []
         with open(path, "r") as f:
             for i, line in enumerate(f):
-                if self.debug_mode and i == 3: break
+                if self.debug_mode and i == 5: break
                 sample = json.loads(line)
                 data_list.append(sample)
         if num and not self.debug_mode:
@@ -1642,10 +1642,16 @@ class Trainer:
             if do_test is False:
                 if self.sql_match(tmp_sql_dict, sample_sql):
                     matched_num += 1
-                f_valid.write("%s\n" % str(tmp_sql_dict))
-                f_valid.write("%s\n" % str(sample_sql))
-                f_valid.write("%s\n" % str(value_change_list))
-                f_valid.write("\n")
+                else:
+                    f_valid.write("%s\n" % str(sample_question))
+                    f_valid.write("%s\n" % str(tmp_sql_dict))
+                    f_valid.write("%s\n" % str(sample_sql))
+                    # f_valid.write("%s\n" % str(value_change_list))
+                    cols = set(map(lambda x: x[0], tmp_sql_dict["conds"])) | set(map(lambda x: x[0], sample_sql["conds"]))
+                    for j, table_header in enumerate(table_header_list):
+                        if j in cols:
+                            f_valid.write("%d、%s\n" % (j, table_header))
+                    f_valid.write("\n")
 
         if do_test is False:
             logical_acc = matched_num / len(sample_index_list)
@@ -2117,5 +2123,5 @@ if __name__ == "__main__":
             pass
         # os.system("sudo init 0")
     else:
-        trainer.test(do_evaluate=False, do_test=True)
+        trainer.test(do_evaluate=True, do_test=False)
 
