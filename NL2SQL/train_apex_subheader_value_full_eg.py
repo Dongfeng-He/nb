@@ -1103,7 +1103,7 @@ class Trainer:
             for i, value in enumerate(value_set):
                 value_tokens = bert_tokenizer.tokenize(value)
                 # TODO: 限制最多添加4个value
-                # if i == 4: break
+                if i == 4: break
                 if i == 0:
                     value_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + value_tokens + ["[SEP]"])
                 else:
