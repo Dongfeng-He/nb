@@ -1461,6 +1461,12 @@ class Trainer:
         # 返回训练数据
         return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list
 
+    def trim_batch_data(self, batch_data):
+        max_len = torch.max(torch.sum((batch_data[0] != 0), 1))
+        if max_len > 2:
+            batch_data = [tsr[:, :max_len] for tsr in batch_data]
+        return batch_data
+
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
@@ -1821,6 +1827,7 @@ class Trainer:
             optimizer.zero_grad()
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_loader):
+                batch_data = self.trim_batch_data(batch_data)
                 if torch.cuda.is_available():
                     input_ids = batch_data[0].to(self.device, non_blocking=True)
                     tag_masks = batch_data[1].to(self.device, non_blocking=True)
@@ -1906,6 +1913,7 @@ class Trainer:
             where_num_probs_list = []
             op_probs_list = []
             for j, valid_batch_data in enumerate(valid_loader):
+                valid_batch_data = self.trim_batch_data(valid_batch_data)
                 if torch.cuda.is_available():
                     input_ids = valid_batch_data[0].to(self.device, non_blocking=True)
                     tag_masks = valid_batch_data[1].to(self.device, non_blocking=True)
@@ -2054,6 +2062,7 @@ class Trainer:
             where_num_probs_list = []
             op_probs_list = []
             for j, valid_batch_data in enumerate(valid_loader):
+                valid_batch_data = self.trim_batch_data(valid_batch_data)
                 if torch.cuda.is_available():
                     input_ids = valid_batch_data[0].to(self.device, non_blocking=True)
                     tag_masks = valid_batch_data[1].to(self.device, non_blocking=True)
@@ -2161,6 +2170,7 @@ class Trainer:
             where_num_probs_list = []
             op_probs_list = []
             for j, test_batch_data in enumerate(test_loader):
+                test_batch_data = self.trim_batch_data(test_batch_data)
                 if torch.cuda.is_available():
                     input_ids = test_batch_data[0].to(self.device, non_blocking=True)
                     attention_masks = test_batch_data[1].to(self.device, non_blocking=True)
