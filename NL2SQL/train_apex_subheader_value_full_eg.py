@@ -2225,8 +2225,8 @@ if __name__ == "__main__":
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
         data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=2, base_batch_size=2, max_len=180, part=0.001, debug_mode=False)
-    do_test = False
+    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=0.001, debug_mode=False)
+    do_test = True
     if do_test is False:
         try:
             trainer.train()
