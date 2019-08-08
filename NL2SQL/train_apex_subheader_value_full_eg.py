@@ -2135,7 +2135,9 @@ class Trainer:
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
+            eval_start_time = time.time()
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, total_probs_list)
+            print("eval time cost: %d" % int((time.time() - eval_start_time) / 60))
             print(eval_result)
         print("valid time cost: %d" % int((time.time() - valid_start_time) / 60))
 
