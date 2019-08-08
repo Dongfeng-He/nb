@@ -1464,7 +1464,7 @@ class Trainer:
     def trim_batch_data(self, batch_data):
         max_len = torch.max(torch.sum((batch_data[0] != 0), 1))
         if max_len > 2:
-            batch_data = [tsr[:, :max_len] if i in [0, 1, 5, 8, 12, 13, 19] else tsr for i, tsr in enumerate(batch_data)]
+            batch_data = [tsr[:, :max_len].contiguous() if i in [0, 1, 5, 8, 12, 13, 19] else tsr for i, tsr in enumerate(batch_data)]
         return batch_data
 
     def sigmoid(self, x):
