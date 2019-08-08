@@ -1397,8 +1397,9 @@ class Trainer:
             test_question_list.append(sample["question"].strip().replace(" ", ""))
             test_table_id_list.append(sample["table_id"])
         # TODO: valid 按照顺序排序
-        total_valid_list = [valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list, valid_sample_index_list, valid_sql_list, valid_question_list, valid_table_id_list]
-        valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list, valid_sample_index_list, valid_sql_list, valid_question_list, valid_table_id_list = zip(*sorted(zip(*total_valid_list), key=lambda x: np.sum(np.array(x[0]) != 0), reverse=True))
+        order_list = [i for i in range(len(valid_conc_tokens))]
+        total_valid_list = [valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list, order_list]
+        valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list, order_list = zip(*sorted(zip(*total_valid_list), key=lambda x: np.sum(np.array(x[0]) != 0), reverse=True))
         train_dataset = data.TensorDataset(torch.tensor(train_conc_tokens, dtype=torch.long),
                                            torch.tensor(train_tag_masks, dtype=torch.long),
                                            torch.tensor(train_sel_masks, dtype=torch.long),
@@ -1462,7 +1463,7 @@ class Trainer:
         valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False, pin_memory=pin_memory, num_workers=num_workers)
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.base_batch_size, shuffle=False, pin_memory=pin_memory, num_workers=num_workers)
         # 返回训练数据
-        return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list
+        return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list, order_list
 
     def trim_batch_data(self, batch_data):
         max_len = torch.max(torch.sum((batch_data[0] != 0), 1))
@@ -2025,7 +2026,7 @@ class Trainer:
 
     def test(self, do_evaluate=True, do_test=True):
         # 加载 dataloader
-        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.create_dataloader()
+        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list, order_list = self.create_dataloader()
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
         if os.path.exists("/Users/hedongfeng/Desktop/NL2SQL/76_0_fix_tag"):
@@ -2144,6 +2145,10 @@ class Trainer:
                 sel_num_probs_list.extend(probs_list[5])
                 where_num_probs_list.extend(probs_list[6])
                 op_probs_list.extend(probs_list[7])
+
+            total_valid_list = [order_list, tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, cls_index_list, sel_num_labels_list, where_num_labels_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_labels_list, op_logits_list, tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
+            order_list, tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, cls_index_list, sel_num_labels_list, where_num_labels_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_labels_list, op_logits_list, tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list = zip(*sorted(zip(*total_valid_list), key=lambda x: x[0], reverse=False))
+
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
