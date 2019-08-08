@@ -1102,8 +1102,6 @@ class Trainer:
             value_start_index = len(conc_ids) + 1
             for i, value in enumerate(value_set):
                 value_tokens = bert_tokenizer.tokenize(value)
-                # TODO: 限制最多添加4个value
-                if i == 4: break
                 if i == 0:
                     value_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + value_tokens + ["[SEP]"])
                 else:
@@ -1398,6 +1396,9 @@ class Trainer:
             test_sample_index_list.append(len(test_conc_tokens))
             test_question_list.append(sample["question"].strip().replace(" ", ""))
             test_table_id_list.append(sample["table_id"])
+        # TODO: valid 按照顺序排序
+        total_valid_list = [valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list]
+        valid_conc_tokens, valid_tag_masks, valid_sel_masks, valid_con_masks, valid_type_masks, valid_attention_masks, valid_connection_labels, valid_agg_labels, valid_tag_labels, valid_con_num_labels, valid_type_labels, valid_cls_index_list, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_header_question_list, valid_header_table_id_list, valid_header_masks, valid_question_masks, valid_subheader_cls_list, valid_subheader_masks, valid_sel_num_labels, valid_where_num_labels, valid_op_labels, valid_value_masks, valid_question_token_list = zip(*sorted(zip(*total_valid_list), key=lambda x: np.sum(np.array(x[0]) != 0), reverse=True))
         train_dataset = data.TensorDataset(torch.tensor(train_conc_tokens, dtype=torch.long),
                                            torch.tensor(train_tag_masks, dtype=torch.long),
                                            torch.tensor(train_sel_masks, dtype=torch.long),
