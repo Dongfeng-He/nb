@@ -2025,6 +2025,7 @@ class Trainer:
         for param in model.parameters():
             param.requires_grad = False
         model.eval()
+        valid_start_time = time.time()
         if do_evaluate:
             tag_logits_list = []
             agg_logits_list = []
@@ -2136,6 +2137,7 @@ class Trainer:
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, total_probs_list)
             print(eval_result)
+        print("valid time cost: %d" % int((time.time() - valid_start_time) / 60))
 
         if do_test:
             tag_logits_list = []
