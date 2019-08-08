@@ -14,6 +14,7 @@ from pytorch_pretrained_bert import convert_tf_checkpoint_to_pytorch
 from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
+import argparse
 if torch.cuda.is_available():
     from apex import amp
 import json
@@ -1023,8 +1024,6 @@ class Trainer:
         sel_num = len(sel_list)
         where_num = len(con_list)
         sel_dict = {sel: agg for sel, agg in zip(sel_list, agg_list)}
-        # <class 'list'>: [[0, 2, '大黄蜂'], [0, 2, '密室逃生']] 一列两value 多一个任务判断where一列的value数, con_dict里面的数量要喝conds匹配，否则放弃这一列（但也不能作为非con非sel训练）
-        # 标注只能用多分类？有可能对应多个
         duplicate_indices = QuestionMatcher.duplicate_relative_index(con_list)
         con_dict = {}
         for [con_col, op, value], duplicate_index in zip(con_list, duplicate_indices):  # duplicate index 是跟着 value 的
@@ -1035,10 +1034,6 @@ class Trainer:
                     con_dict[con_col].append([op, matched_value, matched_index])
                 else:
                     con_dict[con_col] = [[op, matched_value, matched_index]]
-        # TODO：con_dict要看看len和conds里同一列的数量是否一致，不一致不参与训练
-        # TODO：多任务加上col对应的con数量
-        # TODO：需要变成训练集的就是 sel_dict、con_dict和connection
-        # TODO: 只有conds的序列标注任务是valid的，其他都不valid
 
         conc_tokens = []
         tag_masks = []
@@ -1065,7 +1060,6 @@ class Trainer:
 
         question_tokens = bert_tokenizer.tokenize(question)
         question_list = list(question)
-
         question_char_mapping = []
         for i, token in enumerate(question_tokens):
             token = token.replace("##", "")
@@ -1140,7 +1134,6 @@ class Trainer:
                 con_num = min(len(header_con_list), 3)  # 4 只有一个样本，太少了，归到 3 类
                 type_id = 1
             elif col in sel_dict:
-                # TODO: 是不是还有同一个个sel col，多个不同聚合方式
                 tag_mask = [0] * self.max_len
                 sel_mask = 1
                 agg_id = sel_dict[col]
@@ -1224,8 +1217,6 @@ class Trainer:
                     break
             subheader_mask_len = len(conc_ids) - subheader_start_index - 1
             subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index, mask_len=subheader_mask_len)
-            # attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
-            # conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
 
             value_cls_index = len(conc_ids)
             value_start_index = len(conc_ids) + 1
@@ -1257,15 +1248,6 @@ class Trainer:
         return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
 
     def create_dataloader(self):
-        """
-        sel 列 agg类型
-        where 列 逻辑符 值
-        where连接符
-
-        问题开头cls：where连接符（或者新模型，所有header拼一起，预测where连接类型？）
-        列的开头cls，多任务学习：1、（不选中，sel，where） 2、agg类型（0~5：agg类型，6：不属于sel） 3、逻辑符类型：（0~3：逻辑符类型，4：不属于where）
-        问题部分：序列标注，（每一个字的隐层和列开头cls拼接？再拼接列所有字符的avg？），二分类，如果列是where并且是对应value的，标注为1
-        """
         # train: 41522 val: 4396 test: 4086
         train_data_list = self.load_data(self.train_data_path, num=int(41522 * self.part))
         train_table_dict = self.load_table(self.train_table_path)
@@ -1467,9 +1449,15 @@ class Trainer:
                                           torch.tensor(test_type_masks, dtype=torch.long),
                                           )
         # 将 dataset 转成 dataloader
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True)
-        valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.base_batch_size, shuffle=False)
+        if torch.cuda.is_available():
+            pin_memory = True
+            num_workers = 7
+        else:
+            pin_memory = False
+            num_workers = 3
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.base_batch_size, shuffle=True, pin_memory=pin_memory, num_workers=num_workers)
+        valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False, pin_memory=pin_memory, num_workers=num_workers)
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.base_batch_size, shuffle=False, pin_memory=pin_memory, num_workers=num_workers)
         # 返回训练数据
         return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list
 
@@ -1569,11 +1557,7 @@ class Trainer:
             for row in table_row_list:
                 for col, value in enumerate(row):
                     col_dict[col].append(str(value))
-            """
-            table_title = table_dict[sample_table_id]["title"]
-            table_header_list = table_dict[sample_table_id]["header"]
-            table_row_list = table_dict[sample_table_id]["rows"]
-            """
+
             value_change_list = []
             sel_prob_list = []
             where_prob_list = []
@@ -1641,14 +1625,6 @@ class Trainer:
                     if len(str_list) == 0: continue
                     value_str = "".join(str_list)
                     op = col_op
-                    """
-                    if (con_col == 2 and op == 2 and value_str == "1000") or \
-                        (con_col == 6 and op == 2 and value_str == "2015年") or \
-                        (con_col == 5 and op == 2 and value_str == "350k") or \
-                        (con_col == 2 and op == 0 and value_str == "20万") or \
-                        (con_col == 6 and op == 2 and value_str == "2016年"):
-                        print(1)
-                    """
                     candidate_value_set = set()
                     new_value, longest_digit_num, longest_chinese_num = ValueOptimizer.find_longest_num(value_str, sample_question, value_start_index)
                     candidate_value_set.add(value_str)
@@ -1696,19 +1672,6 @@ class Trainer:
                         final_value = ValueOptimizer.magnitude_alignment(value_str, value_start_index, sample_question, final_value, col_data_type, col_values)
                     # con_list 是一列里面的 con
                     con_list.append([con_col, op, final_value])
-                    """
-                    if col_data_type == "text":
-                        if value_str not in col_values:
-                            best_value, _ = value_optimizer.select_best_matched_value(value_str, col_values)
-                            if len(best_value) > 0:
-                                value_str = best_value
-                    elif col_data_type == "real":
-                        if op != 2: # 不是 =，不能搜索，能比大小的应该就是数字
-                            if longest_digit_num:
-                                value_str = longest_digit_num
-                            elif digit:
-                                value_str = digit
-                    """
                 if len(con_list) == con_num:
                     for [con_col, op, final_value] in con_list:
                         where_prob_list.append({"prob": where_prob, "type": col_type, "cond": [con_col, op, final_value]})
@@ -1717,11 +1680,6 @@ class Trainer:
                         [con_col, op, final_value] = con_list[0]
                         where_prob_list.append({"prob": where_prob, "type": col_type, "cond": [con_col, op, final_value]})
 
-            # sel_num = max(sample_sel_num_logits, key=sample_sel_num_logits.count)
-            # where_num = max(sample_where_num_logits, key=sample_where_num_logits.count)
-
-            # connection = max(real_connection_list, key=real_connection_list.count) if where_num > 1 and len(real_connection_list) > 0 else 0
-            # type_dict = {0: "sel", 1: "con", 2: "none"}
             sel_prob_list = sorted(sel_prob_list, key=lambda x: (-x["type"], x["prob"]), reverse=True)
             where_prob_list = sorted(where_prob_list, key=lambda x: (-(x["type"] ** 2 - 1) ** 2, x["prob"]), reverse=True)
 
@@ -1729,7 +1687,6 @@ class Trainer:
             sel_num = self.determine_num(sel_prob_list, mean_sel_num_prob, num_limit=3)
             where_num = self.determine_num(where_prob_list, mean_where_num_prob, num_limit=4)
 
-            # TODO: connection只有where时才预测，要改过来，前where
             if where_num <= 1 or len(where_prob_list) == 0:
                 connection = 0
             else:
@@ -1765,13 +1722,6 @@ class Trainer:
         if do_test is False:
             logical_acc = matched_num / len(sample_index_list)
             print("logical_acc", logical_acc)
-
-            op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "不选中"}
-            agg_sql_dict = {0: "", 1: "AVG", 2: "MAX", 3: "MIN", 4: "COUNT", 5: "SUM"}
-            conn_sql_dict = {0: "", 1: "and", 2: "or"}
-            con_num_dict = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}
-            type_dict = {0: "sel", 1: "con", 2: "none"}
-
             tag_pred = []
             tag_true = []
             tag_fully_matched = []
@@ -1820,9 +1770,7 @@ class Trainer:
             eval_result += "SEL_NUM\n" + self.detail_score(sel_num_true, sel_num_pred, num_labels=4, ignore_num=0) + "\n"
             eval_result += "WHERE_NUM\n" + self.detail_score(where_num_true, where_num_pred, num_labels=5, ignore_num=0) + "\n"
             eval_result += "OP\n" + self.detail_score(op_true, op_pred, num_labels=4, ignore_num=None) + "\n"
-
             tag_acc = accuracy_score(tag_true, tag_pred)
-
             return eval_result, tag_acc, logical_acc
 
         else:
@@ -1862,8 +1810,6 @@ class Trainer:
         num_train_optimization_steps = int(self.epochs * epoch_steps)
         valid_every = math.floor(epoch_steps * accumulation_steps / 5)
         optimizer = BertAdam(optimizer_grouped_parameters, lr=lr, warmup=0.05, t_total=num_train_optimization_steps)
-        # 渐变学习速率
-        #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 0.6 ** epoch)
         if torch.cuda.is_available():
             model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
         # 开始训练
@@ -1876,26 +1822,26 @@ class Trainer:
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_loader):
                 if torch.cuda.is_available():
-                    input_ids = batch_data[0].to(self.device)
-                    tag_masks = batch_data[1].to(self.device)
-                    sel_masks = batch_data[2].to(self.device)   # 至少要有一个？ 否则 continue？
-                    con_masks = batch_data[3].to(self.device)   # 至少要有一个？ 否则 continue？
-                    type_masks = batch_data[4].to(self.device)
-                    attention_masks = batch_data[5].to(self.device)
-                    connection_labels = batch_data[6].to(self.device)
-                    agg_labels = batch_data[7].to(self.device)
-                    tag_labels = batch_data[8].to(self.device)
-                    con_num_labels = batch_data[9].to(self.device)
-                    type_labels = batch_data[10].to(self.device)
-                    cls_index_list = batch_data[11].to(self.device)
-                    header_masks = batch_data[12].to(self.device)
-                    question_masks = batch_data[13].to(self.device)
-                    subheader_cls_list = batch_data[14].to(self.device)
-                    subheader_masks = batch_data[15].to(self.device)
-                    sel_num_labels = batch_data[16].to(self.device)
-                    where_num_labels = batch_data[17].to(self.device)
-                    op_labels = batch_data[18].to(self.device)
-                    value_masks = batch_data[19].to(self.device)
+                    input_ids = batch_data[0].to(self.device, non_blocking=True)
+                    tag_masks = batch_data[1].to(self.device, non_blocking=True)
+                    sel_masks = batch_data[2].to(self.device, non_blocking=True)   # 至少要有一个？ 否则 continue？
+                    con_masks = batch_data[3].to(self.device, non_blocking=True)   # 至少要有一个？ 否则 continue？
+                    type_masks = batch_data[4].to(self.device, non_blocking=True)
+                    attention_masks = batch_data[5].to(self.device, non_blocking=True)
+                    connection_labels = batch_data[6].to(self.device, non_blocking=True)
+                    agg_labels = batch_data[7].to(self.device, non_blocking=True)
+                    tag_labels = batch_data[8].to(self.device, non_blocking=True)
+                    con_num_labels = batch_data[9].to(self.device, non_blocking=True)
+                    type_labels = batch_data[10].to(self.device, non_blocking=True)
+                    cls_index_list = batch_data[11].to(self.device, non_blocking=True)
+                    header_masks = batch_data[12].to(self.device, non_blocking=True)
+                    question_masks = batch_data[13].to(self.device, non_blocking=True)
+                    subheader_cls_list = batch_data[14].to(self.device, non_blocking=True)
+                    subheader_masks = batch_data[15].to(self.device, non_blocking=True)
+                    sel_num_labels = batch_data[16].to(self.device, non_blocking=True)
+                    where_num_labels = batch_data[17].to(self.device, non_blocking=True)
+                    op_labels = batch_data[18].to(self.device, non_blocking=True)
+                    value_masks = batch_data[19].to(self.device, non_blocking=True)
                 else:
                     input_ids = batch_data[0]
                     tag_masks = batch_data[1]
@@ -1951,7 +1897,6 @@ class Trainer:
             type_probs_list = []
             op_labels_list = []
             op_logits_list = []
-
             tag_probs_list = []
             agg_probs_list = []
             connection_probs_list = []
@@ -1960,29 +1905,28 @@ class Trainer:
             sel_num_probs_list = []
             where_num_probs_list = []
             op_probs_list = []
-
             for j, valid_batch_data in enumerate(valid_loader):
                 if torch.cuda.is_available():
-                    input_ids = valid_batch_data[0].to(self.device)
-                    tag_masks = valid_batch_data[1].to(self.device)
-                    sel_masks = valid_batch_data[2].to(self.device)
-                    con_masks = valid_batch_data[3].to(self.device)
-                    type_masks = valid_batch_data[4].to(self.device)
-                    attention_masks = valid_batch_data[5].to(self.device)
-                    connection_labels = valid_batch_data[6].to(self.device)
-                    agg_labels = valid_batch_data[7].to(self.device)
-                    tag_labels = valid_batch_data[8].to(self.device)
-                    con_num_labels = valid_batch_data[9].to(self.device)
-                    type_labels = valid_batch_data[10].to(self.device)
-                    cls_indices = valid_batch_data[11].to(self.device)
-                    header_masks = valid_batch_data[12].to(self.device)
-                    question_masks = valid_batch_data[13].to(self.device)
-                    subheader_cls_list = valid_batch_data[14].to(self.device)
-                    subheader_masks = valid_batch_data[15].to(self.device)
-                    sel_num_labels = valid_batch_data[16].to(self.device)
-                    where_num_labels = valid_batch_data[17].to(self.device)
-                    op_labels = valid_batch_data[18].to(self.device)
-                    value_masks = valid_batch_data[19].to(self.device)
+                    input_ids = valid_batch_data[0].to(self.device, non_blocking=True)
+                    tag_masks = valid_batch_data[1].to(self.device, non_blocking=True)
+                    sel_masks = valid_batch_data[2].to(self.device, non_blocking=True)
+                    con_masks = valid_batch_data[3].to(self.device, non_blocking=True)
+                    type_masks = valid_batch_data[4].to(self.device, non_blocking=True)
+                    attention_masks = valid_batch_data[5].to(self.device, non_blocking=True)
+                    connection_labels = valid_batch_data[6].to(self.device, non_blocking=True)
+                    agg_labels = valid_batch_data[7].to(self.device, non_blocking=True)
+                    tag_labels = valid_batch_data[8].to(self.device, non_blocking=True)
+                    con_num_labels = valid_batch_data[9].to(self.device, non_blocking=True)
+                    type_labels = valid_batch_data[10].to(self.device, non_blocking=True)
+                    cls_indices = valid_batch_data[11].to(self.device, non_blocking=True)
+                    header_masks = valid_batch_data[12].to(self.device, non_blocking=True)
+                    question_masks = valid_batch_data[13].to(self.device, non_blocking=True)
+                    subheader_cls_list = valid_batch_data[14].to(self.device, non_blocking=True)
+                    subheader_masks = valid_batch_data[15].to(self.device, non_blocking=True)
+                    sel_num_labels = valid_batch_data[16].to(self.device, non_blocking=True)
+                    where_num_labels = valid_batch_data[17].to(self.device, non_blocking=True)
+                    op_labels = valid_batch_data[18].to(self.device, non_blocking=True)
+                    value_masks = valid_batch_data[19].to(self.device, non_blocking=True)
                 else:
                     input_ids = valid_batch_data[0]
                     tag_masks = valid_batch_data[1]
@@ -2005,7 +1949,6 @@ class Trainer:
                     op_labels = valid_batch_data[18]
                     value_masks = valid_batch_data[19]
                 tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits, probs_list = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_indices)
-
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
                 tag_labels = tag_labels.to('cpu').numpy().tolist()
@@ -2015,7 +1958,6 @@ class Trainer:
                 sel_num_labels = sel_num_labels.to('cpu').numpy().tolist()
                 where_num_labels = where_num_labels.to('cpu').numpy().tolist()
                 op_labels = op_labels.to('cpu').numpy().tolist()
-
                 tag_logits_list.extend(tag_logits)
                 agg_logits_list.extend(agg_logits)
                 connection_logits_list.extend(connection_logits)
@@ -2034,7 +1976,6 @@ class Trainer:
                 type_probs_list.extend(type_probs)
                 op_labels_list.extend(op_labels)
                 op_logits_list.extend(op_logits)
-
                 tag_probs_list.extend(probs_list[0])
                 agg_probs_list.extend(probs_list[1])
                 connection_probs_list.extend(probs_list[2])
@@ -2043,15 +1984,11 @@ class Trainer:
                 sel_num_probs_list.extend(probs_list[5])
                 where_num_probs_list.extend(probs_list[6])
                 op_probs_list.extend(probs_list[7])
-
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
-
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, total_probs_list)
-
             score = logical_acc
-            # print("epoch: %d duration: %d min \n" % (epoch + 1, int((time.time() - train_start_time) / 60)))
             print("epoch: %d, train_duration: %d min , valid_duration: %d min \n" % (epoch + 1, int((valid_start_time - train_start_time) / 60), int((time.time() - valid_start_time) / 60)))
             print(eval_result)
             f_log.write("epoch: %d, train_duration: %d min , valid_duration: %d min \n" % (epoch + 1, int((valid_start_time - train_start_time) / 60), int((time.time() - valid_start_time) / 60)))
@@ -2059,17 +1996,14 @@ class Trainer:
             f_log.write(eval_result + "\n")
             f_log.flush()
             save_start_time = time.time()
-
+            # 保存模型
             if not self.debug_mode and score > best_score:
                 best_score = score
                 state_dict = model.state_dict()
-                # model[bert][seed][epoch][stage][model_name][stage_train_duration][valid_duration][score].bin
-                # model_name = "model2/model_%s_%d_%d_%dmin_%dmin_%.4f.bin" % (self.model_name, self.seed, epoch + 1, train_duration, valid_duration, score)
-                model_name = "my_model.bin"
+                model_name = "my_model_%d.bin" % int(time.time())
                 torch.save(state_dict, model_name)
                 print("model save duration: %d min" % int((time.time() - save_start_time) / 60))
                 f_log.write("model save duration: %d min\n" % int((time.time() - save_start_time) / 60))
-
             model.train()
         f_log.close()
         # del 训练相关输入和模型
@@ -2110,7 +2044,6 @@ class Trainer:
             type_probs_list = []
             op_labels_list = []
             op_logits_list = []
-
             tag_probs_list = []
             agg_probs_list = []
             connection_probs_list = []
@@ -2119,29 +2052,28 @@ class Trainer:
             sel_num_probs_list = []
             where_num_probs_list = []
             op_probs_list = []
-
             for j, valid_batch_data in enumerate(valid_loader):
                 if torch.cuda.is_available():
-                    input_ids = valid_batch_data[0].to(self.device)
-                    tag_masks = valid_batch_data[1].to(self.device)
-                    sel_masks = valid_batch_data[2].to(self.device)
-                    con_masks = valid_batch_data[3].to(self.device)
-                    type_masks = valid_batch_data[4].to(self.device)
-                    attention_masks = valid_batch_data[5].to(self.device)
-                    connection_labels = valid_batch_data[6].to(self.device)
-                    agg_labels = valid_batch_data[7].to(self.device)
-                    tag_labels = valid_batch_data[8].to(self.device)
-                    con_num_labels = valid_batch_data[9].to(self.device)
-                    type_labels = valid_batch_data[10].to(self.device)
-                    cls_indices = valid_batch_data[11].to(self.device)
-                    header_masks = valid_batch_data[12].to(self.device)
-                    question_masks = valid_batch_data[13].to(self.device)
-                    subheader_cls_list = valid_batch_data[14].to(self.device)
-                    subheader_masks = valid_batch_data[15].to(self.device)
-                    sel_num_labels = valid_batch_data[16].to(self.device)
-                    where_num_labels = valid_batch_data[17].to(self.device)
-                    op_labels = valid_batch_data[18].to(self.device)
-                    value_masks = valid_batch_data[19].to(self.device)
+                    input_ids = valid_batch_data[0].to(self.device, non_blocking=True)
+                    tag_masks = valid_batch_data[1].to(self.device, non_blocking=True)
+                    sel_masks = valid_batch_data[2].to(self.device, non_blocking=True)
+                    con_masks = valid_batch_data[3].to(self.device, non_blocking=True)
+                    type_masks = valid_batch_data[4].to(self.device, non_blocking=True)
+                    attention_masks = valid_batch_data[5].to(self.device, non_blocking=True)
+                    connection_labels = valid_batch_data[6].to(self.device, non_blocking=True)
+                    agg_labels = valid_batch_data[7].to(self.device, non_blocking=True)
+                    tag_labels = valid_batch_data[8].to(self.device, non_blocking=True)
+                    con_num_labels = valid_batch_data[9].to(self.device, non_blocking=True)
+                    type_labels = valid_batch_data[10].to(self.device, non_blocking=True)
+                    cls_indices = valid_batch_data[11].to(self.device, non_blocking=True)
+                    header_masks = valid_batch_data[12].to(self.device, non_blocking=True)
+                    question_masks = valid_batch_data[13].to(self.device, non_blocking=True)
+                    subheader_cls_list = valid_batch_data[14].to(self.device, non_blocking=True)
+                    subheader_masks = valid_batch_data[15].to(self.device, non_blocking=True)
+                    sel_num_labels = valid_batch_data[16].to(self.device, non_blocking=True)
+                    where_num_labels = valid_batch_data[17].to(self.device, non_blocking=True)
+                    op_labels = valid_batch_data[18].to(self.device, non_blocking=True)
+                    value_masks = valid_batch_data[19].to(self.device, non_blocking=True)
                 else:
                     input_ids = valid_batch_data[0]
                     tag_masks = valid_batch_data[1]
@@ -2164,7 +2096,6 @@ class Trainer:
                     op_labels = valid_batch_data[18]
                     value_masks = valid_batch_data[19]
                 tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits, probs_list = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_indices)
-
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
                 tag_labels = tag_labels.to('cpu').numpy().tolist()
@@ -2174,7 +2105,6 @@ class Trainer:
                 sel_num_labels = sel_num_labels.to('cpu').numpy().tolist()
                 where_num_labels = where_num_labels.to('cpu').numpy().tolist()
                 op_labels = op_labels.to('cpu').numpy().tolist()
-
                 tag_logits_list.extend(tag_logits)
                 agg_logits_list.extend(agg_logits)
                 connection_logits_list.extend(connection_logits)
@@ -2193,7 +2123,6 @@ class Trainer:
                 type_probs_list.extend(type_probs)
                 op_labels_list.extend(op_labels)
                 op_logits_list.extend(op_logits)
-
                 tag_probs_list.extend(probs_list[0])
                 agg_probs_list.extend(probs_list[1])
                 connection_probs_list.extend(probs_list[2])
@@ -2202,9 +2131,7 @@ class Trainer:
                 sel_num_probs_list.extend(probs_list[5])
                 where_num_probs_list.extend(probs_list[6])
                 op_probs_list.extend(probs_list[7])
-
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
-
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, total_probs_list)
@@ -2221,7 +2148,6 @@ class Trainer:
             where_num_logits_list = []
             type_probs_list = []
             op_logits_list = []
-
             tag_probs_list = []
             agg_probs_list = []
             connection_probs_list = []
@@ -2230,18 +2156,17 @@ class Trainer:
             sel_num_probs_list = []
             where_num_probs_list = []
             op_probs_list = []
-
             for j, test_batch_data in enumerate(test_loader):
                 if torch.cuda.is_available():
-                    input_ids = test_batch_data[0].to(self.device)
-                    attention_masks = test_batch_data[1].to(self.device)
-                    cls_indices = test_batch_data[2].to(self.device)
-                    header_masks = test_batch_data[3].to(self.device)
-                    question_masks = test_batch_data[4].to(self.device)
-                    subheader_cls_list = test_batch_data[5].to(self.device)
-                    subheader_masks = test_batch_data[6].to(self.device)
-                    value_masks = test_batch_data[7].to(self.device)
-                    type_masks = test_batch_data[8].to(self.device)
+                    input_ids = test_batch_data[0].to(self.device, non_blocking=True)
+                    attention_masks = test_batch_data[1].to(self.device, non_blocking=True)
+                    cls_indices = test_batch_data[2].to(self.device, non_blocking=True)
+                    header_masks = test_batch_data[3].to(self.device, non_blocking=True)
+                    question_masks = test_batch_data[4].to(self.device, non_blocking=True)
+                    subheader_cls_list = test_batch_data[5].to(self.device, non_blocking=True)
+                    subheader_masks = test_batch_data[6].to(self.device, non_blocking=True)
+                    value_masks = test_batch_data[7].to(self.device, non_blocking=True)
+                    type_masks = test_batch_data[8].to(self.device, non_blocking=True)
                 else:
                     input_ids = test_batch_data[0]
                     attention_masks = test_batch_data[1]
@@ -2263,7 +2188,6 @@ class Trainer:
                 where_num_logits_list.extend(where_num_logits)
                 type_probs_list.extend(type_probs)
                 op_logits_list.extend(op_logits)
-
                 tag_probs_list.extend(probs_list[0])
                 agg_probs_list.extend(probs_list[1])
                 connection_probs_list.extend(probs_list[2])
@@ -2272,9 +2196,7 @@ class Trainer:
                 sel_num_probs_list.extend(probs_list[5])
                 where_num_probs_list.extend(probs_list[6])
                 op_probs_list.extend(probs_list[7])
-
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
-
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [[] for _ in range(8)]
             test_sql_list, test_header_question_list, test_header_table_id_list = [], [], []
@@ -2282,6 +2204,10 @@ class Trainer:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--train", action="store_true")
+    parser.add_argument("--test", action="store_true")
+    args = parser.parse_args()
     if os.path.exists("/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"):
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
@@ -2295,5 +2221,5 @@ if __name__ == "__main__":
             pass
         # os.system("sudo init 0")
     else:
-        trainer.test(do_evaluate=True, do_test=True)
+        trainer.test(do_evaluate=True, do_test=False)
 
