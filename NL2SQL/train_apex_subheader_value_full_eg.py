@@ -1464,7 +1464,7 @@ class Trainer:
     def trim_batch_data(self, batch_data):
         max_len = torch.max(torch.sum((batch_data[0] != 0), 1))
         if max_len > 2:
-            batch_data = [tsr[:, :max_len] for tsr in batch_data]
+            batch_data = [tsr[:, :max_len] if i in [0, 1, 5, 8, 12, 13, 19] else tsr for i, tsr in enumerate(batch_data)]
         return batch_data
 
     def sigmoid(self, x):
@@ -2144,9 +2144,7 @@ class Trainer:
             total_probs_list = [tag_probs_list, agg_probs_list, connection_probs_list, con_num_probs_list, type_probs_list, sel_num_probs_list, where_num_probs_list, op_probs_list]
             logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
             labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            eval_start_time = time.time()
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, total_probs_list)
-            print("eval time cost: %d" % int((time.time() - eval_start_time) / 60))
             print(eval_result)
         print("valid time cost: %d" % int((time.time() - valid_start_time) / 60))
 
@@ -2170,7 +2168,6 @@ class Trainer:
             where_num_probs_list = []
             op_probs_list = []
             for j, test_batch_data in enumerate(test_loader):
-                test_batch_data = self.trim_batch_data(test_batch_data)
                 if torch.cuda.is_available():
                     input_ids = test_batch_data[0].to(self.device, non_blocking=True)
                     attention_masks = test_batch_data[1].to(self.device, non_blocking=True)
@@ -2226,8 +2223,8 @@ if __name__ == "__main__":
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
         data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=0.001, debug_mode=False)
-    do_test = True
+    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=0.001, debug_mode=True)
+    do_test = False
     if do_test is False:
         try:
             trainer.train()
