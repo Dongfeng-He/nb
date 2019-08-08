@@ -1102,6 +1102,8 @@ class Trainer:
             value_start_index = len(conc_ids) + 1
             for i, value in enumerate(value_set):
                 value_tokens = bert_tokenizer.tokenize(value)
+                # TODO: 限制最多添加4个value
+                # if i == 4: break
                 if i == 0:
                     value_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + value_tokens + ["[SEP]"])
                 else:
@@ -1464,7 +1466,7 @@ class Trainer:
     def trim_batch_data(self, batch_data):
         max_len = torch.max(torch.sum((batch_data[0] != 0), 1))
         if max_len > 2:
-            batch_data = [tsr[:, :max_len].contiguous() if i in [0, 1, 5, 8, 12, 13, 19] else tsr for i, tsr in enumerate(batch_data)]
+            batch_data = [tsr[:, :max_len].contiguous() if i in [0, 1, 5, 8, 12, 13, 15, 19] else tsr for i, tsr in enumerate(batch_data)]
         return batch_data
 
     def sigmoid(self, x):
@@ -2223,8 +2225,8 @@ if __name__ == "__main__":
         data_dir = "/Users/hedongfeng/PycharmProjects/unintended_bias/data/nl2sql_data/"
     else:
         data_dir = "/root/nb/data/nl2sql_data"
-    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=16, base_batch_size=16, max_len=180, part=0.001, debug_mode=False)
-    do_test = True
+    trainer = Trainer(data_dir, "model_name", epochs=15, batch_size=2, base_batch_size=2, max_len=180, part=0.001, debug_mode=False)
+    do_test = False
     if do_test is False:
         try:
             trainer.train()
